@@ -84,6 +84,12 @@ def hash_password(password):
 #  Inject
 # --------------------------------------------------------------------------- #
 
+def _write_unix(path: Path, text: str) -> None:
+    """Write text file with Unix line endings (compatible with Python 3.8+)."""
+    with open(path, "w", newline="\n") as f:
+        f.write(text)
+
+
 def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
            username: str, password: str) -> None:
     boot = Path(boot_path)
@@ -103,11 +109,10 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         rendered = rendered.replace(key, val)
 
     firstrun = boot / "firstrun.sh"
-    firstrun.write_text(rendered, newline="\n")
+    _write_unix(firstrun, rendered)
 
     # 2. Modify cmdline.txt — remove old firstrun entries, add new one
     cmdline = (boot / "cmdline.txt").read_text().strip()
-    # Strip any previous injections
     cmdline = re.sub(r"\s+systemd\.run=\S+", "", cmdline)
     cmdline = re.sub(r"\s+systemd\.run_success_action=\S+", "", cmdline)
     cmdline = re.sub(r"\s+systemd\.unit=\S+", "", cmdline)
@@ -116,16 +121,17 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         " systemd.run_success_action=reboot"
         " systemd.unit=kernel-command-line.target"
     )
-    (boot / "cmdline.txt").write_text(cmdline.strip() + "\n", newline="\n")
+    _write_unix(boot / "cmdline.txt", cmdline.strip() + "\n")
 
     # 3. userconf.txt — required on Bookworm (no default pi user)
     pw_hash = hash_password(password)
-    (boot / "userconf.txt").write_text(f"{username}:{pw_hash}\n", newline="\n")
+    _write_unix(boot / "userconf.txt", f"{username}:{pw_hash}\n")
 
     # 4. ssh — enables SSH server on first boot
     (boot / "ssh").write_text("")
 
     # 5. companionpi-info.txt — version record on the boot partition
+
     from datetime import datetime
     info = (
         f"CompanionPi Imager\n"
@@ -143,7 +149,7 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         f"First boot will install companionpi-wifi from the repo above.\n"
         f"Check /boot/firmware/firstrun.log on the RPi for install progress.\n"
     )
-    (boot / "companionpi-info.txt").write_text(info, newline="\n")
+    _write_unix(boot / "companionpi-info.txt", info)
 
 
 # --------------------------------------------------------------------------- #
