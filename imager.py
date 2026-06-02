@@ -18,7 +18,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "1.0.1"
+IMAGER_VERSION = "1.0.2"
 
 SCRIPT_DIR = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -55,6 +55,28 @@ def find_boot_partitions():
                     candidates.append({"path": str(p), "name": p.name})
 
     return candidates
+
+
+def read_previous_config(boot_path: str) -> dict:
+    """Read companionpi-info.txt from a boot partition and return previous settings."""
+    info_file = Path(boot_path) / "companionpi-info.txt"
+    result = {}
+    if not info_file.exists():
+        return result
+    try:
+        for line in info_file.read_text().splitlines():
+            for key, field in [
+                ("Hostname", "hostname"),
+                ("Username", "username"),
+                ("WiFi country", "wifi_country"),
+                ("Repo URL", "repo_url"),
+                ("Imager version", "prev_version"),
+            ]:
+                if line.startswith(f"{key}"):
+                    result[field] = line.split(":", 1)[-1].strip()
+    except Exception:
+        pass
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -159,8 +181,13 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
 @app.route("/")
 def index():
     partitions = find_boot_partitions()
+    prev = {}
+    if partitions:
+        prev = read_previous_config(partitions[0]["path"])
     return render_template("index.html", partitions=partitions,
-                           repo_url_default=REPO_URL_DEFAULT)
+                           repo_url_default=REPO_URL_DEFAULT,
+                           imager_version=IMAGER_VERSION,
+                           prev=prev)
 
 
 @app.route("/inject", methods=["POST"])

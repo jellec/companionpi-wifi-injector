@@ -26,6 +26,20 @@
       <p class="text-sm text-slate-400">Inject CompanionPi setup into a freshly flashed RPi OS SD card</p>
     </div>
 
+    <!-- Previous install detected -->
+    {% if prev %}
+    <div class="rounded-lg bg-blue-900/40 ring-1 ring-blue-700/50 px-4 py-3 text-sm text-blue-200">
+      <div class="font-medium mb-1">Previous install detected</div>
+      <div class="text-xs text-blue-300 space-y-0.5">
+        <div>Hostname: <span class="font-mono">{{ prev.hostname }}</span></div>
+        <div>Username: <span class="font-mono">{{ prev.username }}</span></div>
+        <div>Wi-Fi country: <span class="font-mono">{{ prev.wifi_country }}</span></div>
+        {% if prev.prev_version %}<div>Imager version used: <span class="font-mono">{{ prev.prev_version }}</span></div>{% endif %}
+      </div>
+      <div class="text-xs text-blue-400 mt-1">Settings pre-filled below.</div>
+    </div>
+    {% endif %}
+
     <!-- Flash messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -99,38 +113,22 @@
         <div class="grid grid-cols-2 gap-4">
           <div class="col-span-2">
             <label class="block text-sm font-medium text-slate-300 mb-1">Hostname</label>
-            <input type="text" name="hostname" value="companion" pattern="[a-zA-Z0-9\-]+" required
+            <input type="text" name="hostname" value="{{ prev.hostname or 'companion' }}" pattern="[a-zA-Z0-9\-]+" required
                    class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-300 mb-1">Wi-Fi country</label>
             <select name="wifi_country" required
                     class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="BE" selected>BE — Belgium</option>
-              <option value="NL">NL — Netherlands</option>
-              <option value="DE">DE — Germany</option>
-              <option value="FR">FR — France</option>
-              <option value="GB">GB — United Kingdom</option>
-              <option value="IE">IE — Ireland</option>
-              <option value="LU">LU — Luxembourg</option>
-              <option value="CH">CH — Switzerland</option>
-              <option value="AT">AT — Austria</option>
-              <option value="ES">ES — Spain</option>
-              <option value="IT">IT — Italy</option>
-              <option value="PT">PT — Portugal</option>
-              <option value="NO">NO — Norway</option>
-              <option value="SE">SE — Sweden</option>
-              <option value="DK">DK — Denmark</option>
-              <option value="FI">FI — Finland</option>
-              <option value="US">US — United States</option>
-              <option value="CA">CA — Canada</option>
-              <option value="AU">AU — Australia</option>
-              <option value="NZ">NZ — New Zealand</option>
+              {% set wc = prev.wifi_country or 'BE' %}
+              {% for code, name in [('BE','Belgium'),('NL','Netherlands'),('DE','Germany'),('FR','France'),('GB','United Kingdom'),('IE','Ireland'),('LU','Luxembourg'),('CH','Switzerland'),('AT','Austria'),('ES','Spain'),('IT','Italy'),('PT','Portugal'),('NO','Norway'),('SE','Sweden'),('DK','Denmark'),('FI','Finland'),('US','United States'),('CA','Canada'),('AU','Australia'),('NZ','New Zealand')] %}
+              <option value="{{ code }}" {{ 'selected' if code == wc }}>{{ code }} — {{ name }}</option>
+              {% endfor %}
             </select>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
-            <input type="text" name="username" value="companion"
+            <input type="text" name="username" value="{{ prev.username or 'companion' }}"
                    class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
           <div class="col-span-2">
