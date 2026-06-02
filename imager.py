@@ -17,7 +17,8 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"  # TODO: update
+REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
+IMAGER_VERSION = "1.0.0"
 
 SCRIPT_DIR = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -123,6 +124,26 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
 
     # 4. ssh — enables SSH server on first boot
     (boot / "ssh").write_text("")
+
+    # 5. companionpi-info.txt — version record on the boot partition
+    from datetime import datetime
+    info = (
+        f"CompanionPi Imager\n"
+        f"==================\n"
+        f"Imager version : {IMAGER_VERSION}\n"
+        f"Injected at    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"Repo URL       : {repo_url}\n"
+        f"\n"
+        f"Configuration\n"
+        f"-------------\n"
+        f"Hostname       : {hostname}\n"
+        f"Username       : {username}\n"
+        f"WiFi country   : {wifi_country}\n"
+        f"\n"
+        f"First boot will install companionpi-wifi from the repo above.\n"
+        f"Check /boot/firmware/firstrun.log on the RPi for install progress.\n"
+    )
+    (boot / "companionpi-info.txt").write_text(info, newline="\n")
 
 
 # --------------------------------------------------------------------------- #

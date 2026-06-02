@@ -5,22 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CompanionPi Imager</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] } } }
-    }
-  </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
-  <style>
-    [x-cloak] { display: none !important; }
-    .card { @apply bg-slate-800 border border-slate-700 rounded-xl; }
-    .form-input { @apply w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent; }
-    .form-label { @apply block text-sm font-medium text-slate-300 mb-1.5; }
-    .btn-primary { @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
-  </style>
+  <style>[x-cloak] { display: none !important; }</style>
 </head>
-<body class="min-h-screen bg-slate-900 text-white"
-      x-data="{ selected: '', confirmed: false }">
+<body class="min-h-screen bg-slate-900 text-white" x-data="{ selected: '', confirmed: false }">
 
   <div class="max-w-xl mx-auto px-4 py-12 space-y-6">
 
@@ -33,7 +21,7 @@
           </svg>
         </div>
       </div>
-      <h1 class="text-2xl font-bold text-white">CompanionPi Imager</h1>
+      <h1 class="text-2xl font-bold">CompanionPi Imager</h1>
       <p class="text-sm text-slate-400">Inject CompanionPi setup into a freshly flashed RPi OS SD card</p>
     </div>
 
@@ -41,9 +29,9 @@
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
     {% for category, message in messages %}
-    <div class="rounded-lg px-4 py-3 text-sm flex gap-3
-      {% if category == 'success' %}bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20
-      {% elif category == 'error' %}bg-red-500/10 text-red-300 ring-1 ring-red-500/20
+    <div class="rounded-lg px-4 py-3 text-sm
+      {% if category == 'success' %}bg-emerald-900 text-emerald-200 ring-1 ring-emerald-700
+      {% elif category == 'error' %}bg-red-900 text-red-200 ring-1 ring-red-700
       {% else %}bg-slate-700 text-slate-300{% endif %}">
       {{ message }}
     </div>
@@ -53,34 +41,34 @@
 
     <form method="post" action="{{ url_for('do_inject') }}" class="space-y-5">
 
-      <!-- Step 1: select boot partition -->
-      <div class="card p-5 space-y-3">
+      <!-- Step 1 -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-3">
         <div class="flex items-center gap-2">
-          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold">1</span>
-          <h2 class="font-semibold text-white">Select boot partition</h2>
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">1</span>
+          <h2 class="font-semibold">Select boot partition</h2>
         </div>
-        <p class="text-xs text-slate-500">Flash RPi OS Lite with Raspberry Pi Imager first, then select the mounted boot volume below.</p>
+        <p class="text-xs text-slate-400">Flash RPi OS Lite with Raspberry Pi Imager first, then select the mounted boot volume below.</p>
 
         {% if partitions %}
         <div class="space-y-2">
           {% for p in partitions %}
           <label class="flex items-center gap-3 cursor-pointer rounded-lg border px-4 py-3 transition-colors"
-                 :class="selected === '{{ p.path }}' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 hover:border-slate-500'"
+                 :class="selected === '{{ p.path }}' ? 'border-blue-500 bg-blue-900' : 'border-slate-600 hover:border-slate-500'"
                  @click="selected = '{{ p.path }}'">
-            <input type="radio" name="boot_path" value="{{ p.path }}" class="sr-only" :checked="selected === '{{ p.path }}'">
-            <span class="h-4 w-4 rounded-full border-2 flex-shrink-0"
-                  :class="selected === '{{ p.path }}' ? 'border-blue-500 bg-blue-500' : 'border-slate-500'"></span>
+            <input type="radio" name="boot_path" value="{{ p.path }}" class="sr-only">
+            <span class="h-4 w-4 rounded-full border-2 shrink-0 transition-colors"
+                  :class="selected === '{{ p.path }}' ? 'border-blue-400 bg-blue-400' : 'border-slate-500'"></span>
             <div>
-              <div class="text-sm font-medium text-white">{{ p.name }}</div>
-              <div class="text-xs text-slate-500 font-mono">{{ p.path }}</div>
+              <div class="text-sm font-medium">{{ p.name }}</div>
+              <div class="text-xs text-slate-400 font-mono">{{ p.path }}</div>
             </div>
           </label>
           {% endfor %}
         </div>
         {% else %}
         <div class="rounded-lg bg-slate-900 px-4 py-6 text-center text-sm text-slate-500">
-          No RPi boot partition found.
-          <div class="mt-1 text-xs">Flash RPi OS Lite with RPi Imager, wait for the boot volume to mount, then refresh this page.</div>
+          No RPi boot partition detected.
+          <div class="mt-1 text-xs">Flash RPi OS Lite, wait for <strong class="text-slate-400">bootfs</strong> to mount, then refresh.</div>
           <button type="button" onclick="window.location.reload()"
                   class="mt-3 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300">
             Refresh
@@ -88,78 +76,82 @@
         </div>
         {% endif %}
 
-        <!-- Manual path fallback -->
+        <!-- Manual fallback -->
         <details class="text-xs text-slate-500">
-          <summary class="cursor-pointer hover:text-slate-400">Enter path manually</summary>
+          <summary class="cursor-pointer hover:text-slate-400 select-none">Enter path manually</summary>
           <div class="mt-2">
-            <input type="text" name="boot_path_manual" placeholder="/Volumes/bootfs"
-                   class="form-input text-xs"
-                   @input="selected = $event.target.value; $el.closest('form').querySelector('[name=boot_path]').value = $event.target.value">
+            <input type="text" placeholder="/Volumes/bootfs"
+                   class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                   @input="selected = $event.target.value">
+            <input type="hidden" name="boot_path" :value="selected">
           </div>
         </details>
       </div>
 
-      <!-- Step 2: configure -->
-      <div class="card p-5 space-y-4">
+      <!-- Step 2 -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <div class="flex items-center gap-2">
-          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold">2</span>
-          <h2 class="font-semibold text-white">Configure</h2>
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">2</span>
+          <h2 class="font-semibold">Configure</h2>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
           <div class="col-span-2">
-            <label class="form-label">Hostname</label>
-            <input type="text" name="hostname" value="companion" pattern="[a-zA-Z0-9\-]+"
-                   class="form-input" required>
+            <label class="block text-sm font-medium text-slate-300 mb-1">Hostname</label>
+            <input type="text" name="hostname" value="companion" pattern="[a-zA-Z0-9\-]+" required
+                   class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
           <div>
-            <label class="form-label">Wi-Fi country</label>
-            <input type="text" name="wifi_country" value="BE" maxlength="2"
-                   class="form-input uppercase" required>
+            <label class="block text-sm font-medium text-slate-300 mb-1">Wi-Fi country</label>
+            <input type="text" name="wifi_country" value="BE" maxlength="2" required
+                   class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase">
           </div>
           <div>
-            <label class="form-label">Username</label>
-            <input type="text" name="username" value="companion" class="form-input">
+            <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
+            <input type="text" name="username" value="companion"
+                   class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
           <div class="col-span-2">
-            <label class="form-label">Password (for SSH login)</label>
-            <input type="text" name="password" value="companion123" class="form-input font-mono">
+            <label class="block text-sm font-medium text-slate-300 mb-1">Password (for SSH login)</label>
+            <input type="text" name="password" value="companion123"
+                   class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
           </div>
         </div>
 
         <details class="text-xs text-slate-500">
-          <summary class="cursor-pointer hover:text-slate-400">Advanced: Repository URL</summary>
+          <summary class="cursor-pointer hover:text-slate-400 select-none">Advanced: Repository URL</summary>
           <div class="mt-2">
-            <label class="form-label">CompanionPi WiFi3 git URL</label>
-            <input type="text" name="repo_url" value="{{ repo_url_default }}" class="form-input text-xs font-mono">
+            <label class="block text-sm font-medium text-slate-400 mb-1">CompanionPi WiFi git URL</label>
+            <input type="text" name="repo_url" value="{{ repo_url_default }}"
+                   class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
           </div>
         </details>
       </div>
 
-      <!-- Step 3: inject -->
-      <div class="card p-5 space-y-4">
+      <!-- Step 3 -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <div class="flex items-center gap-2">
-          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold">3</span>
-          <h2 class="font-semibold text-white">Inject & eject</h2>
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">3</span>
+          <h2 class="font-semibold">Inject &amp; eject</h2>
         </div>
 
         <div class="rounded-lg bg-slate-900 px-4 py-3 text-xs text-slate-400 space-y-1.5">
-          <div class="flex gap-2"><span class="text-emerald-400">1.</span> Injects firstrun.sh into the boot partition</div>
-          <div class="flex gap-2"><span class="text-emerald-400">2.</span> Creates user account (userconf.txt)</div>
-          <div class="flex gap-2"><span class="text-emerald-400">3.</span> Enables SSH on first boot</div>
-          <div class="flex gap-2"><span class="text-emerald-400">4.</span> On first boot: RPi installs CompanionPi automatically</div>
+          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">1.</span> Injects firstrun.sh into the boot partition</div>
+          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">2.</span> Creates user account (userconf.txt)</div>
+          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">3.</span> Enables SSH on first boot</div>
+          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">4.</span> On first boot: RPi installs CompanionPi automatically (~5 min)</div>
         </div>
 
-        <label class="flex items-center gap-3 cursor-pointer">
+        <label class="flex items-center gap-3 cursor-pointer select-none">
           <input type="checkbox" x-model="confirmed"
-                 class="h-4 w-4 rounded border-slate-600 bg-slate-700 text-blue-600">
+                 class="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-blue-500">
           <span class="text-sm text-slate-300">I have flashed RPi OS Lite and selected the correct boot partition</span>
         </label>
 
         <button type="submit"
-                :disabled="!selected || !confirmed"
-                class="btn-primary w-full"
-                :class="(!selected || !confirmed) ? 'opacity-50 cursor-not-allowed' : ''">
+                :disabled="!confirmed"
+                :class="confirmed ? 'bg-blue-600 hover:bg-blue-500 cursor-pointer' : 'bg-slate-700 cursor-not-allowed opacity-50'"
+                class="w-full flex items-center justify-center gap-2 px-5 py-2.5 text-white text-sm font-medium rounded-lg transition-colors">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
           </svg>
@@ -170,10 +162,10 @@
     </form>
 
     <p class="text-center text-xs text-slate-600">
-      After injecting: eject the SD card safely, insert into RPi, and power on.
+      After injecting: eject the SD card safely, insert into RPi, and power on.<br>
       First boot takes ~5 minutes while packages are installed.
     </p>
-  </div>
 
+  </div>
 </body>
 </html>
