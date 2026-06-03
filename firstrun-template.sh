@@ -177,7 +177,9 @@ for attempt in 1 2 3; do
         python3-flask \
         network-manager \
         dnsmasq \
-        curl && break
+        curl \
+        rfkill \
+        wireless-tools && break
     [ $attempt -lt 3 ] && { log "  apt failed, retrying in 30s..."; sleep 30; }
 done
 
