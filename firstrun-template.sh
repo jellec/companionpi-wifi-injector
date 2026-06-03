@@ -224,6 +224,25 @@ fi
 log "Running install.sh..."
 bash /opt/companionpi-wifi/install.sh
 
+# Install Bitfocus Companion
+log "Installing Bitfocus Companion..."
+COMPANION_URL=$(curl -s https://api.github.com/repos/bitfocus/companion/releases/latest \
+  | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+assets=[a['browser_download_url'] for a in d.get('assets',[]) if 'arm64.deb' in a['name'].lower()]
+print(assets[0] if assets else '')
+" 2>/dev/null)
+if [ -n "$COMPANION_URL" ]; then
+    curl -L "$COMPANION_URL" -o /tmp/companion.deb 2>/dev/null
+    apt-get install -y -qq /tmp/companion.deb 2>&1 || log "WARNING: Companion install failed"
+    rm -f /tmp/companion.deb
+    systemctl enable --now companion 2>/dev/null || true
+    log "Companion installed."
+else
+    log "WARNING: Could not find Companion ARM64 release — install manually via the web UI"
+fi
+
 # Write WiFi and AP settings to settings.env
 log "Applying Wi-Fi settings (country=$WIFI_COUNTRY AP=$AP_SSID)"
 sed -i "s/^WIFI_COUNTRY=.*/WIFI_COUNTRY=$WIFI_COUNTRY/" \
