@@ -278,7 +278,7 @@
                    class="text-blue-400 underline hover:text-blue-300">user.bitfocus.io/download</a>
                 (free account)
               </li>
-              <li>Download <span class="font-mono bg-blue-900/40 px-1 rounded">Linux ARM64 .deb</span></li>
+              <li>Download <span class="font-mono bg-blue-900/40 px-1 rounded">Linux ARM64 .deb</span> or <span class="font-mono bg-blue-900/40 px-1 rounded">.tar.gz</span></li>
               <li>Import it below — it will be bundled onto the SD card</li>
             </ol>
           </div>
@@ -292,7 +292,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                 </svg>
                 <span>Choose .deb file...</span>
-                <input type="file" accept=".deb" class="sr-only"
+                <input type="file" accept=".deb,.tar.gz,.tgz" class="sr-only"
                        @change="
                          if (!$event.target.files[0]) return;
                          importing = true; importDone = false; importError = '';

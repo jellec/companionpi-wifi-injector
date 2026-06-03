@@ -231,14 +231,38 @@ if [ "$IMAGE_TYPE" = "companionpi" ]; then
     systemctl enable --now companion 2>/dev/null || true
 else
     COMPANION_DEB=$(ls "$PACKAGES_DIR"/companion*.deb 2>/dev/null | head -1)
+    COMPANION_TGZ=$(ls "$PACKAGES_DIR"/companion*.tar.gz "$PACKAGES_DIR"/companion*.tgz 2>/dev/null | head -1)
+
     if [ -n "$COMPANION_DEB" ]; then
-        log "Installing Companion from SD card: $(basename $COMPANION_DEB)"
-        apt-get install -y -qq "$COMPANION_DEB" 2>&1 || log "WARNING: Companion install failed"
+        log "Installing Companion from SD card (.deb): $(basename $COMPANION_DEB)"
+        apt-get install -y -qq "$COMPANION_DEB" 2>&1 || log "WARNING: Companion .deb install failed"
         systemctl enable --now companion 2>/dev/null || true
-        log "Companion installed (offline)."
+        log "Companion installed (offline .deb)."
+    elif [ -n "$COMPANION_TGZ" ]; then
+        log "Installing Companion from SD card (.tar.gz): $(basename $COMPANION_TGZ)"
+        mkdir -p /opt/companion
+        tar -xzf "$COMPANION_TGZ" -C /opt/companion --strip-components=1 2>&1 || \
+            tar -xzf "$COMPANION_TGZ" -C /opt/companion 2>&1
+        # Create systemd service for tar.gz install
+        cat > /etc/systemd/system/companion.service << 'SVCEOF'
+[Unit]
+Description=Bitfocus Companion
+After=network.target
+[Service]
+Type=simple
+ExecStart=/opt/companion/companion
+Restart=always
+RestartSec=5
+User=root
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+        systemctl daemon-reload
+        systemctl enable --now companion 2>/dev/null || true
+        log "Companion installed (offline .tar.gz)."
     else
-        log "WARNING: No Companion package found. Install via web UI after boot."
-        log "  Download from: https://user.bitfocus.io/download (Linux ARM64 .deb)"
+        log "WARNING: No Companion package on SD card. Install via web UI after boot."
+        log "  Download from: https://user.bitfocus.io/download (Linux ARM64 .deb or .tar.gz)"
     fi
 fi
 
