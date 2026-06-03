@@ -130,16 +130,22 @@ sed -i 's| systemd\.run=[^ ]*||g' /boot/firmware/cmdline.txt
 sed -i 's| systemd\.run_success_action=[^ ]*||g' /boot/firmware/cmdline.txt
 sed -i 's| systemd\.unit=[^ ]*||g' /boot/firmware/cmdline.txt
 
-# Wait for network / DNS before proceeding
+# Ensure DNS works during early boot (resolv.conf may be empty before systemd-resolved starts)
+if ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
+    log "No nameserver in resolv.conf — adding 8.8.8.8"
+    echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+fi
+
+# Wait for network / IP connectivity before proceeding
 log "Waiting for network..."
 NETWORK_OK=0
 for i in $(seq 1 60); do
-    if getent hosts deb.debian.org >/dev/null 2>&1; then
+    if ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
         log "Network ready (try $i)"
         NETWORK_OK=1
         break
     fi
-    log "  No DNS yet, waiting... ($i/60)"
+    log "  No network yet, waiting... ($i/60)"
     sleep 2
 done
 
