@@ -220,10 +220,14 @@ fi
 log "Running install.sh..."
 bash /opt/companionpi-wifi/install.sh
 
-# Set wifi country
+# Set wifi country in settings and at OS level
 log "Setting Wi-Fi country: $WIFI_COUNTRY"
 sed -i "s/^WIFI_COUNTRY=.*/WIFI_COUNTRY=$WIFI_COUNTRY/" \
     /etc/companionpi-wifi/settings.env
+# Apply country code and unblock WiFi
+raspi-config nonint do_wifi_country "$WIFI_COUNTRY" 2>/dev/null || \
+    iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
+rfkill unblock wifi 2>/dev/null || true
 
 # Done
 log "=== First boot complete ==="
