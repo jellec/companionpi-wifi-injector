@@ -11,6 +11,7 @@ USERNAME="{{USERNAME}}"
 AP_SSID="{{AP_SSID}}"
 AP_PASSWORD="{{AP_PASSWORD}}"
 INSTALL_CUPS="{{INSTALL_CUPS}}"
+IMAGE_TYPE="{{IMAGE_TYPE}}"    # companionpi | rpios
 PACKAGES_DIR="/boot/firmware/packages"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
@@ -169,19 +170,17 @@ for attempt in 1 2 3; do
     [ $attempt -lt 3 ] && { log "  Retrying in 15s..."; sleep 15; }
 done
 
-# Install dependencies (retry up to 3 times)
+# Install dependencies — CompanionPi image already has most packages
+if [ "$IMAGE_TYPE" = "companionpi" ]; then
+    log "CompanionPi image — installing only network management packages..."
+    PKGS="network-manager dnsmasq rfkill wireless-tools git curl"
+else
+    PKGS="git python3 python3-pip python3-flask network-manager dnsmasq curl rfkill wireless-tools"
+fi
+
 for attempt in 1 2 3; do
     log "Installing packages — attempt $attempt/3..."
-    apt-get install -y -qq --fix-missing \
-        git \
-        python3 \
-        python3-pip \
-        python3-flask \
-        network-manager \
-        dnsmasq \
-        curl \
-        rfkill \
-        wireless-tools && break
+    apt-get install -y -qq --fix-missing $PKGS && break
     [ $attempt -lt 3 ] && { log "  apt failed, retrying in 30s..."; sleep 30; }
 done
 
@@ -226,30 +225,20 @@ fi
 log "Running install.sh..."
 bash /opt/companionpi-wifi/install.sh
 
-# Install Bitfocus Companion — offline if bundled, otherwise download
-COMPANION_DEB=$(ls "$PACKAGES_DIR"/companion*.deb 2>/dev/null | head -1)
-if [ -n "$COMPANION_DEB" ]; then
-    log "Installing Companion from SD card: $(basename $COMPANION_DEB)"
-    apt-get install -y -qq "$COMPANION_DEB" 2>&1 || log "WARNING: Companion install failed"
+# Install Bitfocus Companion — skip if already present (CompanionPi image)
+if [ "$IMAGE_TYPE" = "companionpi" ]; then
+    log "CompanionPi image — Companion already installed, skipping."
     systemctl enable --now companion 2>/dev/null || true
-    log "Companion installed (offline)."
 else
-    log "Downloading Bitfocus Companion (no offline package found)..."
-    COMPANION_URL=$(curl -s https://api.github.com/repos/bitfocus/companion/releases/latest \
-      | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-assets=[a['browser_download_url'] for a in d.get('assets',[]) if 'arm64.deb' in a['name'].lower()]
-print(assets[0] if assets else '')
-" 2>/dev/null)
-    if [ -n "$COMPANION_URL" ]; then
-        curl -L "$COMPANION_URL" -o /tmp/companion.deb 2>/dev/null
-        apt-get install -y -qq /tmp/companion.deb 2>&1 || log "WARNING: Companion install failed"
-        rm -f /tmp/companion.deb
+    COMPANION_DEB=$(ls "$PACKAGES_DIR"/companion*.deb 2>/dev/null | head -1)
+    if [ -n "$COMPANION_DEB" ]; then
+        log "Installing Companion from SD card: $(basename $COMPANION_DEB)"
+        apt-get install -y -qq "$COMPANION_DEB" 2>&1 || log "WARNING: Companion install failed"
         systemctl enable --now companion 2>/dev/null || true
-        log "Companion installed (online)."
+        log "Companion installed (offline)."
     else
-        log "WARNING: Could not find Companion ARM64 release — install via web UI after boot"
+        log "WARNING: No Companion package found. Install via web UI after boot."
+        log "  Download from: https://user.bitfocus.io/download (Linux ARM64 .deb)"
     fi
 fi
 

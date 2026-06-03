@@ -86,7 +86,47 @@
     {% endif %}
     {% endwith %}
 
-    <form method="post" action="{{ url_for('do_inject') }}" class="space-y-5">
+    <form method="post" action="{{ url_for('do_inject') }}" class="space-y-5"
+        x-data="Object.assign($data, { imageType: '{{ detected_image_type }}' })">
+
+      <!-- Image type selector -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-3">
+        <div class="text-sm font-semibold text-white">Image type</div>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex items-start gap-3 cursor-pointer rounded-lg border px-4 py-3 transition-colors"
+                 :class="imageType === 'rpios' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 hover:border-slate-500'"
+                 @click="imageType = 'rpios'">
+            <input type="radio" name="image_type" value="rpios" class="sr-only">
+            <span class="h-4 w-4 rounded-full border-2 shrink-0 mt-0.5 transition-colors"
+                  :class="imageType === 'rpios' ? 'border-blue-500 bg-blue-500' : 'border-slate-500'"></span>
+            <div>
+              <div class="text-sm font-medium text-white">RPi OS Lite</div>
+              <div class="text-xs text-slate-500 mt-0.5">Standard Raspberry Pi OS — installs Companion + network manager on first boot</div>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 cursor-pointer rounded-lg border px-4 py-3 transition-colors"
+                 :class="imageType === 'companionpi' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 hover:border-slate-500'"
+                 @click="imageType = 'companionpi'">
+            <input type="radio" name="image_type" value="companionpi" class="sr-only">
+            <span class="h-4 w-4 rounded-full border-2 shrink-0 mt-0.5 transition-colors"
+                  :class="imageType === 'companionpi' ? 'border-blue-500 bg-blue-500' : 'border-slate-500'"></span>
+            <div>
+              <div class="text-sm font-medium text-white flex items-center gap-1.5">
+                CompanionPi
+                <span class="text-xs bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 px-1.5 py-0.5 rounded-full font-normal">by Bitfocus</span>
+              </div>
+              <div class="text-xs text-slate-500 mt-0.5">Official CompanionPi image — Companion pre-installed, only injects network config</div>
+              <a href="https://user.bitfocus.io/download" target="_blank"
+                 class="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block"
+                 @click.stop>↗ user.bitfocus.io/download</a>
+            </div>
+          </label>
+        </div>
+        <div x-show="imageType === 'companionpi'" x-cloak
+             class="rounded-lg bg-blue-900/20 ring-1 ring-blue-700/30 px-3 py-2 text-xs text-blue-300">
+          Flash the <strong>CompanionPi ARM64</strong> image with Raspberry Pi Imager, then inject here for network setup.
+        </div>
+      </div>
 
       <!-- Step 1 -->
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-3">
@@ -196,8 +236,9 @@
         </details>
       </div>
 
-      <!-- Step 3 — Packages -->
-      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+      <!-- Step 3 — Packages (RPi OS only) -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4"
+           x-show="imageType === 'rpios'" x-cloak>
         <div class="flex items-center gap-2">
           <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">3</span>
           <h2 class="font-semibold">Bundle packages <span class="text-slate-500 font-normal text-xs">(offline install — no internet needed on RPi)</span></h2>

@@ -24,7 +24,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "1.2.2"
+IMAGER_VERSION = "1.2.3"
 
 SCRIPT_DIR   = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -76,6 +76,22 @@ def find_boot_partitions():
                     p = vol.parent
                     candidates.append({"path": str(p), "name": p.name})
     return candidates
+
+
+def detect_image_type(boot_path: str) -> str:
+    """Detect whether this is a CompanionPi or standard RPi OS boot partition."""
+    boot = Path(boot_path)
+    # CompanionPi image has specific markers
+    for marker in ["companion.txt", "companionpi.txt", "companion/", ".companion"]:
+        if (boot / marker).exists():
+            return "companionpi"
+    # Check cmdline.txt for CompanionPi-specific content
+    cmdline = boot / "cmdline.txt"
+    if cmdline.exists():
+        content = cmdline.read_text()
+        if "companion" in content.lower():
+            return "companionpi"
+    return "rpios"
 
 
 def read_previous_config(boot_path: str) -> dict:
@@ -218,7 +234,7 @@ def _write_unix(path: Path, text: str) -> None:
 def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
            username: str, password: str, ap_ssid: str = "CompanionPi",
            ap_password: str = "companion123", install_cups: bool = False,
-           package_files: list = None) -> None:
+           package_files: list = None, image_type: str = "rpios") -> None:
     boot = Path(boot_path)
 
     if not (boot / "cmdline.txt").exists():
@@ -253,6 +269,7 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         ("{{AP_SSID}}", ap_ssid),
         ("{{AP_PASSWORD}}", ap_password),
         ("{{INSTALL_CUPS}}", "true" if install_cups else "false"),
+        ("{{IMAGE_TYPE}}", image_type),
     ]:
         rendered = rendered.replace(key, val)
 
@@ -313,13 +330,16 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
 def index():
     partitions = find_boot_partitions()
     prev = {}
+    detected_type = "rpios"
     if partitions:
         prev = read_previous_config(partitions[0]["path"])
+        detected_type = detect_image_type(partitions[0]["path"])
     cached = get_cached_packages()
     return render_template("index.html", partitions=partitions,
                            repo_url_default=REPO_URL_DEFAULT,
                            imager_version=IMAGER_VERSION,
-                           prev=prev, cached_packages=cached)
+                           prev=prev, cached_packages=cached,
+                           detected_image_type=detected_type)
 
 
 @app.route("/api/releases")
@@ -394,7 +414,7 @@ def do_inject():
     ap_ssid      = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
     ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
     install_cups = request.form.get("install_cups") == "on"
-    # Checkboxes with package filenames
+    image_type   = request.form.get("image_type", "rpios")
     package_files = request.form.getlist("bundle_pkg")
 
     if not boot_path:
@@ -403,7 +423,7 @@ def do_inject():
 
     try:
         inject(boot_path, hostname, wifi_country, repo_url, username, password,
-               ap_ssid, ap_password, install_cups, package_files)
+               ap_ssid, ap_password, install_cups, package_files, image_type)
         pkg_note = f" — {len(package_files)} package(s) bundled offline" if package_files else " — internet install"
         flash(
             f"Injected successfully into {boot_path}{pkg_note}. "
