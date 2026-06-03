@@ -240,26 +240,46 @@ else
         log "Companion installed (offline .deb)."
     elif [ -n "$COMPANION_TGZ" ]; then
         log "Installing Companion from SD card (.tar.gz): $(basename $COMPANION_TGZ)"
+        rm -rf /opt/companion
         mkdir -p /opt/companion
-        tar -xzf "$COMPANION_TGZ" -C /opt/companion --strip-components=1 2>&1 || \
-            tar -xzf "$COMPANION_TGZ" -C /opt/companion 2>&1
-        # Create systemd service for tar.gz install
-        cat > /etc/systemd/system/companion.service << 'SVCEOF'
+
+        # Extract — try strip-components=1 first (handles top-level folder), then bare
+        tar -xzf "$COMPANION_TGZ" -C /opt/companion --strip-components=1 2>/dev/null || \
+            tar -xzf "$COMPANION_TGZ" -C /opt/companion
+
+        # Find the companion binary (could be ./companion, ./linux-unpacked/companion, etc.)
+        COMPANION_BIN=$(find /opt/companion -maxdepth 3 -type f -name "companion" ! -name "*.js" ! -name "*.map" 2>/dev/null | head -1)
+        if [ -z "$COMPANION_BIN" ]; then
+            # Fallback: any executable named companion-*
+            COMPANION_BIN=$(find /opt/companion -maxdepth 3 -type f -name "companion*" -perm /111 2>/dev/null | grep -v '\.js$\|\.map$\|\.asar$' | head -1)
+        fi
+
+        if [ -z "$COMPANION_BIN" ]; then
+            log "ERROR: Could not find companion binary in archive"
+        else
+            chmod +x "$COMPANION_BIN"
+            log "Found Companion binary: $COMPANION_BIN"
+            cat > /etc/systemd/system/companion.service << SVCEOF
 [Unit]
 Description=Bitfocus Companion
 After=network.target
+
 [Service]
 Type=simple
-ExecStart=/opt/companion/companion
+ExecStart=$COMPANION_BIN
+WorkingDirectory=$(dirname $COMPANION_BIN)
 Restart=always
 RestartSec=5
 User=root
+Environment=HOME=/root
+
 [Install]
 WantedBy=multi-user.target
 SVCEOF
-        systemctl daemon-reload
-        systemctl enable --now companion 2>/dev/null || true
-        log "Companion installed (offline .tar.gz)."
+            systemctl daemon-reload
+            systemctl enable --now companion 2>/dev/null || true
+            log "Companion installed (offline .tar.gz)."
+        fi
     else
         log "WARNING: No Companion package on SD card. Install via web UI after boot."
         log "  Download from: https://user.bitfocus.io/download (Linux ARM64 .deb or .tar.gz)"
