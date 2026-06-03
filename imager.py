@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import ssl
 import subprocess
 import threading
 import urllib.request
@@ -23,7 +24,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "1.2.0"
+IMAGER_VERSION = "1.2.1"
 
 SCRIPT_DIR   = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -31,7 +32,17 @@ PACKAGES_DIR  = SCRIPT_DIR / "packages"
 PACKAGES_DIR.mkdir(exist_ok=True)
 
 COMPANION_RELEASES_URL = "https://api.github.com/repos/bitfocus/companion/releases?per_page=15"
-CUPS_PACKAGES_URL = "https://api.bitfocus.io"  # placeholder
+
+
+def _ssl_context():
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
 
 # Download state
 _dl = {"running": False, "done": False, "error": "", "file": "",
@@ -101,7 +112,7 @@ def fetch_companion_releases():
             COMPANION_RELEASES_URL,
             headers={"User-Agent": f"companion-imager/{IMAGER_VERSION}"}
         )
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, context=_ssl_context(), timeout=10) as r:
             releases = json.loads(r.read())
         result = []
         for rel in releases:
@@ -150,7 +161,7 @@ def _do_download(url: str, filename: str, version: str):
             _dl.update(running=True, done=False, error="", file=filename,
                        version=version, name=filename, downloaded=0, size=0)
         req = urllib.request.Request(url, headers={"User-Agent": f"companion-imager/{IMAGER_VERSION}"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, context=_ssl_context(), timeout=60) as resp:
             total = int(resp.headers.get("Content-Length", 0))
             with _dl_lock:
                 _dl["size"] = total
