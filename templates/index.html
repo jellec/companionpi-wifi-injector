@@ -9,7 +9,40 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <style>[x-cloak] { display: none !important; }</style>
 </head>
-<body class="min-h-screen bg-slate-900 text-white" x-data="{ selected: '', confirmed: false }">
+<body class="min-h-screen bg-slate-900 text-white"
+  x-data="{
+    selected: '',
+    confirmed: false,
+    releases: [],
+    releasesError: '',
+    releasesLoaded: false,
+    dl: { running: false, done: false, error: '', pct: 0, name: '', downloaded_mb: 0, size_mb: 0 },
+    dlTimer: null,
+    async loadReleases() {
+      try {
+        const r = await fetch('/api/releases');
+        const data = await r.json();
+        if (data.error) { this.releasesError = data.error; }
+        else { this.releases = data; }
+      } catch(e) { this.releasesError = String(e); }
+      this.releasesLoaded = true;
+    },
+    async downloadPkg(url, name, version) {
+      this.dl = { running: true, done: false, error: '', pct: 0, name: name, downloaded_mb: 0, size_mb: 0 };
+      await fetch('/api/download', { method: 'POST', body: JSON.stringify({ url, name, version }), headers: { 'Content-Type': 'application/json' } });
+      this.dlTimer = setInterval(async () => {
+        const r = await fetch('/api/download/status');
+        const s = await r.json();
+        this.dl = s;
+        if (!s.running) { clearInterval(this.dlTimer); if (s.done) { window.location.reload(); } }
+      }, 500);
+    },
+    async deletePkg(name) {
+      await fetch('/api/package/delete', { method: 'POST', body: JSON.stringify({ name }), headers: { 'Content-Type': 'application/json' } });
+      window.location.reload();
+    }
+  }"
+  x-init="loadReleases()">
 
   <div class="max-w-xl mx-auto px-4 py-12 space-y-6">
 
@@ -163,10 +196,115 @@
         </details>
       </div>
 
-      <!-- Step 3 -->
+      <!-- Step 3 — Packages -->
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <div class="flex items-center gap-2">
           <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">3</span>
+          <h2 class="font-semibold">Bundle packages <span class="text-slate-500 font-normal text-xs">(offline install — no internet needed on RPi)</span></h2>
+        </div>
+
+        <!-- Cached packages list -->
+        {% if cached_packages %}
+        <div class="space-y-2">
+          <div class="text-xs text-slate-500 font-medium">Downloaded — will be bundled on SD card:</div>
+          {% for pkg in cached_packages %}
+          <div class="flex items-center gap-3 rounded-lg bg-slate-900 px-3 py-2.5">
+            <input type="checkbox" name="bundle_pkg" value="{{ pkg.name }}" checked
+                   class="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-blue-500 shrink-0">
+            <svg class="h-4 w-4 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 10V7"/>
+            </svg>
+            <span class="flex-1 text-sm text-white font-mono truncate">{{ pkg.name }}</span>
+            <span class="text-xs text-slate-500 shrink-0">{{ pkg.size_mb }} MB</span>
+            <button type="button" @click="deletePkg('{{ pkg.name }}')"
+                    class="text-slate-600 hover:text-red-400 transition-colors shrink-0">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Download new package -->
+        <div class="space-y-3">
+          <div class="text-xs text-slate-500 font-medium">Download Bitfocus Companion for offline install:</div>
+
+          <div x-show="!releasesLoaded" class="text-xs text-slate-500">
+            <svg class="inline h-3 w-3 animate-spin mr-1" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            Fetching releases...
+          </div>
+
+          <div x-show="releasesError" x-cloak class="text-xs text-red-400" x-text="'Could not fetch releases: ' + releasesError"></div>
+
+          <div x-show="releasesLoaded && !releasesError && releases.length > 0" x-cloak class="space-y-2">
+            <template x-for="rel in releases" :key="rel.version">
+              <div class="flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors"
+                   :class="rel.cached ? 'border-emerald-600/30 bg-emerald-600/5' : 'border-slate-600 bg-slate-900'">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-white" x-text="'Companion ' + rel.version"></span>
+                    <span x-show="rel.cached"
+                          class="text-xs bg-emerald-400/10 text-emerald-400 ring-1 ring-emerald-400/20 px-1.5 py-0.5 rounded-full">
+                      cached
+                    </span>
+                  </div>
+                  <div class="text-xs text-slate-500" x-text="rel.size_mb + ' MB · ARM64'"></div>
+                </div>
+                <button type="button"
+                        x-show="!rel.cached"
+                        @click="downloadPkg(rel.url, rel.name, rel.version)"
+                        :disabled="dl.running"
+                        class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors">
+                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                  </svg>
+                  Download
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <!-- Download progress -->
+          <div x-show="dl.running || (dl.done && !dl.error)" x-cloak
+               class="rounded-lg bg-slate-900 border border-slate-600 px-4 py-3 space-y-2">
+            <div class="flex items-center justify-between text-xs text-slate-300">
+              <span x-text="dl.name"></span>
+              <span x-show="dl.size_mb > 0" x-text="dl.downloaded_mb + ' / ' + dl.size_mb + ' MB'"></span>
+            </div>
+            <div class="w-full bg-slate-700 rounded-full h-1.5">
+              <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                   :style="'width: ' + dl.pct + '%'"></div>
+            </div>
+            <div class="text-xs" :class="dl.done ? 'text-emerald-400' : 'text-slate-500'"
+                 x-text="dl.done ? '✓ Download complete' : 'Downloading...'"></div>
+          </div>
+
+          <div x-show="dl.error" x-cloak class="text-xs text-red-400" x-text="'Download error: ' + dl.error"></div>
+        </div>
+
+        <!-- Options -->
+        <div class="border-t border-slate-700 pt-4 space-y-2">
+          <div class="text-xs text-slate-500 font-medium">Additional options:</div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" name="install_cups"
+                   class="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-blue-500">
+            <div>
+              <div class="text-sm text-slate-300">Install print server (CUPS)</div>
+              <div class="text-xs text-slate-500">Requires internet on first boot · install takes extra ~5 min</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Step 4 — Inject -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+        <div class="flex items-center gap-2">
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">4</span>
           <h2 class="font-semibold">Inject &amp; eject</h2>
         </div>
 

@@ -4,24 +4,39 @@ Run:  python imager.py
 Then open:  http://localhost:7070
 """
 
+import json
 import os
 import platform
 import re
+import shutil
 import subprocess
+import threading
+import urllib.request
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from threading import Timer
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, redirect, render_template, request, stream_with_context, url_for
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "1.1.3"
+IMAGER_VERSION = "1.2.0"
 
-SCRIPT_DIR = Path(__file__).parent
+SCRIPT_DIR   = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
+PACKAGES_DIR  = SCRIPT_DIR / "packages"
+PACKAGES_DIR.mkdir(exist_ok=True)
+
+COMPANION_RELEASES_URL = "https://api.github.com/repos/bitfocus/companion/releases?per_page=15"
+CUPS_PACKAGES_URL = "https://api.bitfocus.io"  # placeholder
+
+# Download state
+_dl = {"running": False, "done": False, "error": "", "file": "",
+       "size": 0, "downloaded": 0, "version": "", "name": ""}
+_dl_lock = threading.Lock()
 
 
 # --------------------------------------------------------------------------- #
@@ -29,36 +44,30 @@ TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
 # --------------------------------------------------------------------------- #
 
 def find_boot_partitions():
-    """Find mounted RPi OS boot partitions (contain cmdline.txt)."""
     system = platform.system()
     candidates = []
-
     if system == "Darwin":
         volumes = Path("/Volumes")
         if volumes.exists():
             for vol in volumes.iterdir():
                 if (vol / "cmdline.txt").exists():
                     candidates.append({"path": str(vol), "name": vol.name})
-
     elif system == "Windows":
         import string
-        for letter in string.ascii_uppercase[2:]:  # skip A, B
+        for letter in string.ascii_uppercase[2:]:
             drive = Path(f"{letter}:\\")
             if (drive / "cmdline.txt").exists():
                 candidates.append({"path": str(drive), "name": f"{letter}:"})
-
     elif system == "Linux":
         for base in [Path("/media"), Path("/mnt")]:
             if base.exists():
                 for vol in base.rglob("cmdline.txt"):
                     p = vol.parent
                     candidates.append({"path": str(p), "name": p.name})
-
     return candidates
 
 
 def read_previous_config(boot_path: str) -> dict:
-    """Read companionpi-info.txt from a boot partition and return previous settings."""
     info_file = Path(boot_path) / "companionpi-info.txt"
     result = {}
     if not info_file.exists():
@@ -82,7 +91,90 @@ def read_previous_config(boot_path: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-#  Password hashing (for userconf.txt)
+#  Package cache
+# --------------------------------------------------------------------------- #
+
+def fetch_companion_releases():
+    """Fetch available Companion ARM64 releases from GitHub."""
+    try:
+        req = urllib.request.Request(
+            COMPANION_RELEASES_URL,
+            headers={"User-Agent": f"companion-imager/{IMAGER_VERSION}"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            releases = json.loads(r.read())
+        result = []
+        for rel in releases:
+            if rel.get("prerelease") or rel.get("draft"):
+                continue
+            tag = rel["tag_name"]
+            for asset in rel["assets"]:
+                name = asset["name"].lower()
+                if "arm64.deb" in name and "linux" in name:
+                    result.append({
+                        "version": tag,
+                        "name":    asset["name"],
+                        "url":     asset["browser_download_url"],
+                        "size_mb": round(asset["size"] / 1024 / 1024, 1),
+                        "cached":  (PACKAGES_DIR / asset["name"]).exists(),
+                    })
+                    break
+            if len(result) >= 6:
+                break
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_cached_packages():
+    """Return all .deb files in the packages cache."""
+    pkgs = []
+    for f in sorted(PACKAGES_DIR.glob("*.deb"), key=lambda x: x.stat().st_mtime, reverse=True):
+        size_mb = round(f.stat().st_size / 1024 / 1024, 1)
+        pkgs.append({"name": f.name, "size_mb": size_mb, "path": str(f)})
+    return pkgs
+
+
+def boot_free_mb(boot_path: str) -> float:
+    try:
+        st = shutil.disk_usage(boot_path)
+        return round(st.free / 1024 / 1024, 1)
+    except Exception:
+        return 9999.0
+
+
+def _do_download(url: str, filename: str, version: str):
+    dest = PACKAGES_DIR / filename
+    try:
+        with _dl_lock:
+            _dl.update(running=True, done=False, error="", file=filename,
+                       version=version, name=filename, downloaded=0, size=0)
+        req = urllib.request.Request(url, headers={"User-Agent": f"companion-imager/{IMAGER_VERSION}"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            total = int(resp.headers.get("Content-Length", 0))
+            with _dl_lock:
+                _dl["size"] = total
+            with open(dest, "wb") as f:
+                downloaded = 0
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    with _dl_lock:
+                        _dl["downloaded"] = downloaded
+        with _dl_lock:
+            _dl.update(running=False, done=True, downloaded=total or dest.stat().st_size)
+    except Exception as e:
+        if dest.exists():
+            dest.unlink()
+        with _dl_lock:
+            _dl.update(running=False, done=False, error=str(e))
+
+
+# --------------------------------------------------------------------------- #
+#  Password hashing
 # --------------------------------------------------------------------------- #
 
 def hash_password(password):
@@ -91,7 +183,6 @@ def hash_password(password):
         return sha512_crypt.hash(password)
     except ImportError:
         pass
-    # Fallback: openssl (available on Mac + Linux)
     try:
         result = subprocess.run(
             ["openssl", "passwd", "-6", "-stdin"],
@@ -109,20 +200,38 @@ def hash_password(password):
 # --------------------------------------------------------------------------- #
 
 def _write_unix(path: Path, text: str) -> None:
-    """Write text file with Unix line endings (compatible with Python 3.8+)."""
     with open(path, "w", newline="\n") as f:
         f.write(text)
 
 
 def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
            username: str, password: str, ap_ssid: str = "CompanionPi",
-           ap_password: str = "companion123") -> None:
+           ap_password: str = "companion123", install_cups: bool = False,
+           package_files: list = None) -> None:
     boot = Path(boot_path)
 
     if not (boot / "cmdline.txt").exists():
-        raise ValueError(f"No cmdline.txt found in {boot_path} — is this an RPi boot partition?")
+        raise ValueError(f"No cmdline.txt in {boot_path} — is this an RPi boot partition?")
 
-    # 1. Render firstrun.sh
+    # 1. Copy bundled packages to SD
+    pkg_names = []
+    if package_files:
+        pkg_dir = boot / "packages"
+        pkg_dir.mkdir(exist_ok=True)
+        for pkg in package_files:
+            src = PACKAGES_DIR / pkg
+            if src.exists():
+                free = boot_free_mb(boot_path)
+                need = src.stat().st_size / 1024 / 1024
+                if need > free - 20:
+                    raise ValueError(
+                        f"Not enough space on boot partition: need {need:.0f} MB, "
+                        f"only {free:.0f} MB free. Use a larger SD card or skip offline packages."
+                    )
+                shutil.copy2(src, pkg_dir / pkg)
+                pkg_names.append(pkg)
+
+    # 2. Render firstrun.sh
     template = TEMPLATE_FILE.read_text()
     rendered = template
     for key, val in [
@@ -132,13 +241,13 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         ("{{USERNAME}}", username),
         ("{{AP_SSID}}", ap_ssid),
         ("{{AP_PASSWORD}}", ap_password),
+        ("{{INSTALL_CUPS}}", "true" if install_cups else "false"),
     ]:
         rendered = rendered.replace(key, val)
 
-    firstrun = boot / "firstrun.sh"
-    _write_unix(firstrun, rendered)
+    _write_unix(boot / "firstrun.sh", rendered)
 
-    # 2. Modify cmdline.txt — remove old firstrun entries, add new one
+    # 3. cmdline.txt
     cmdline = (boot / "cmdline.txt").read_text().strip()
     cmdline = re.sub(r"\s+systemd\.run=\S+", "", cmdline)
     cmdline = re.sub(r"\s+systemd\.run_success_action=\S+", "", cmdline)
@@ -150,16 +259,14 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
     )
     _write_unix(boot / "cmdline.txt", cmdline.strip() + "\n")
 
-    # 3. userconf.txt — required on Bookworm (no default pi user)
+    # 4. userconf.txt
     pw_hash = hash_password(password)
     _write_unix(boot / "userconf.txt", f"{username}:{pw_hash}\n")
 
-    # 4. ssh — enables SSH server on first boot
+    # 5. ssh
     (boot / "ssh").write_text("")
 
-    # 5. companionpi-info.txt — version record on the boot partition
-
-    from datetime import datetime
+    # 6. companionpi-info.txt
     info = (
         f"CompanionPi Imager\n"
         f"==================\n"
@@ -175,9 +282,15 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         f"AP SSID        : {ap_ssid}\n"
         f"AP password    : {ap_password}\n"
         f"\n"
-        f"First boot will install companionpi-wifi from the repo above.\n"
-        f"Check /boot/firmware/firstrun.log on the RPi for install progress.\n"
+        f"Bundled packages\n"
+        f"----------------\n"
     )
+    if pkg_names:
+        for p in pkg_names:
+            info += f"  {p}\n"
+    else:
+        info += "  (none — will install from internet)\n"
+    info += f"\nInstall CUPS   : {'yes' if install_cups else 'no'}\n"
     _write_unix(boot / "companionpi-info.txt", info)
 
 
@@ -191,10 +304,57 @@ def index():
     prev = {}
     if partitions:
         prev = read_previous_config(partitions[0]["path"])
+    cached = get_cached_packages()
     return render_template("index.html", partitions=partitions,
                            repo_url_default=REPO_URL_DEFAULT,
                            imager_version=IMAGER_VERSION,
-                           prev=prev)
+                           prev=prev, cached_packages=cached)
+
+
+@app.route("/api/releases")
+def api_releases():
+    releases = fetch_companion_releases()
+    return json.dumps(releases), 200, {"Content-Type": "application/json"}
+
+
+@app.route("/api/download", methods=["POST"])
+def api_download():
+    with _dl_lock:
+        if _dl["running"]:
+            return json.dumps({"error": "Download already running"}), 409
+    data   = request.get_json(force=True)
+    url    = data.get("url", "")
+    name   = data.get("name", "")
+    version = data.get("version", "")
+    if not url or not name:
+        return json.dumps({"error": "Missing url or name"}), 400
+    if (PACKAGES_DIR / name).exists():
+        return json.dumps({"status": "already_cached", "name": name}), 200
+    threading.Thread(target=_do_download, args=(url, name, version), daemon=True).start()
+    return json.dumps({"status": "started"}), 200
+
+
+@app.route("/api/download/status")
+def api_download_status():
+    with _dl_lock:
+        state = dict(_dl)
+    pct = 0
+    if state["size"] > 0:
+        pct = round(state["downloaded"] / state["size"] * 100)
+    state["pct"] = pct
+    state["downloaded_mb"] = round(state["downloaded"] / 1024 / 1024, 1)
+    state["size_mb"] = round(state["size"] / 1024 / 1024, 1)
+    return json.dumps(state), 200, {"Content-Type": "application/json"}
+
+
+@app.route("/api/package/delete", methods=["POST"])
+def api_package_delete():
+    name = request.get_json(force=True).get("name", "")
+    if name and re.match(r"^[\w\-\.]+\.deb$", name):
+        f = PACKAGES_DIR / name
+        if f.exists():
+            f.unlink()
+    return json.dumps({"ok": True})
 
 
 @app.route("/inject", methods=["POST"])
@@ -207,6 +367,9 @@ def do_inject():
     password     = request.form.get("password", "companion123")
     ap_ssid      = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
     ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
+    install_cups = request.form.get("install_cups") == "on"
+    # Checkboxes with package filenames
+    package_files = request.form.getlist("bundle_pkg")
 
     if not boot_path:
         flash("Select a boot partition first.", "error")
@@ -214,10 +377,11 @@ def do_inject():
 
     try:
         inject(boot_path, hostname, wifi_country, repo_url, username, password,
-               ap_ssid, ap_password)
+               ap_ssid, ap_password, install_cups, package_files)
+        pkg_note = f" — {len(package_files)} package(s) bundled offline" if package_files else " — internet install"
         flash(
-            f"Injected successfully into {boot_path}. "
-            "Eject the SD card safely and insert it into your Raspberry Pi.",
+            f"Injected successfully into {boot_path}{pkg_note}. "
+            "Eject the SD card safely and insert into your Raspberry Pi.",
             "success",
         )
     except Exception as e:
@@ -232,8 +396,7 @@ def do_inject():
 
 if __name__ == "__main__":
     port = 7070
-    url = f"http://localhost:{port}"
+    url  = f"http://localhost:{port}"
     print(f"\n  CompanionPi Imager  →  {url}\n")
-    # Open browser after a short delay
     Timer(1.2, lambda: webbrowser.open(url)).start()
     app.run(host="127.0.0.1", port=port, debug=False)

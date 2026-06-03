@@ -10,6 +10,8 @@ REPO_URL="{{REPO_URL}}"
 USERNAME="{{USERNAME}}"
 AP_SSID="{{AP_SSID}}"
 AP_PASSWORD="{{AP_PASSWORD}}"
+INSTALL_CUPS="{{INSTALL_CUPS}}"
+PACKAGES_DIR="/boot/firmware/packages"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
 
@@ -224,23 +226,40 @@ fi
 log "Running install.sh..."
 bash /opt/companionpi-wifi/install.sh
 
-# Install Bitfocus Companion
-log "Installing Bitfocus Companion..."
-COMPANION_URL=$(curl -s https://api.github.com/repos/bitfocus/companion/releases/latest \
-  | python3 -c "
+# Install Bitfocus Companion — offline if bundled, otherwise download
+COMPANION_DEB=$(ls "$PACKAGES_DIR"/companion*.deb 2>/dev/null | head -1)
+if [ -n "$COMPANION_DEB" ]; then
+    log "Installing Companion from SD card: $(basename $COMPANION_DEB)"
+    apt-get install -y -qq "$COMPANION_DEB" 2>&1 || log "WARNING: Companion install failed"
+    systemctl enable --now companion 2>/dev/null || true
+    log "Companion installed (offline)."
+else
+    log "Downloading Bitfocus Companion (no offline package found)..."
+    COMPANION_URL=$(curl -s https://api.github.com/repos/bitfocus/companion/releases/latest \
+      | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
 assets=[a['browser_download_url'] for a in d.get('assets',[]) if 'arm64.deb' in a['name'].lower()]
 print(assets[0] if assets else '')
 " 2>/dev/null)
-if [ -n "$COMPANION_URL" ]; then
-    curl -L "$COMPANION_URL" -o /tmp/companion.deb 2>/dev/null
-    apt-get install -y -qq /tmp/companion.deb 2>&1 || log "WARNING: Companion install failed"
-    rm -f /tmp/companion.deb
-    systemctl enable --now companion 2>/dev/null || true
-    log "Companion installed."
-else
-    log "WARNING: Could not find Companion ARM64 release — install manually via the web UI"
+    if [ -n "$COMPANION_URL" ]; then
+        curl -L "$COMPANION_URL" -o /tmp/companion.deb 2>/dev/null
+        apt-get install -y -qq /tmp/companion.deb 2>&1 || log "WARNING: Companion install failed"
+        rm -f /tmp/companion.deb
+        systemctl enable --now companion 2>/dev/null || true
+        log "Companion installed (online)."
+    else
+        log "WARNING: Could not find Companion ARM64 release — install via web UI after boot"
+    fi
+fi
+
+# Install print server (CUPS) if requested
+if [ "$INSTALL_CUPS" = "true" ]; then
+    log "Installing CUPS print server..."
+    apt-get install -y -qq cups cups-bsd printer-driver-gutenprint 2>&1 | tail -3
+    systemctl enable cups 2>/dev/null || true
+    cupsctl --remote-admin --remote-any --share-printers 2>/dev/null || true
+    log "CUPS installed."
 fi
 
 # Write WiFi and AP settings to settings.env
