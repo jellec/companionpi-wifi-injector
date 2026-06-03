@@ -24,7 +24,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "0.2.5"
+IMAGER_VERSION = "0.2.6"
 
 SCRIPT_DIR   = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -234,29 +234,29 @@ def _write_unix(path: Path, text: str) -> None:
 def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
            username: str, password: str, ap_ssid: str = "CompanionPi",
            ap_password: str = "companion123", install_cups: bool = False,
-           package_files: list = None, image_type: str = "rpios") -> None:
+           package_files: list = None, image_type: str = "rpios") -> dict:
     boot = Path(boot_path)
 
     if not (boot / "cmdline.txt").exists():
         raise ValueError(f"No cmdline.txt in {boot_path} — is this an RPi boot partition?")
 
-    # 1. Copy bundled packages to SD
+    # 1. Copy bundled packages to SD (skip packages that don't fit)
     pkg_names = []
+    skipped_pkgs = []
     if package_files:
         pkg_dir = boot / "packages"
         pkg_dir.mkdir(exist_ok=True)
         for pkg in package_files:
             src = PACKAGES_DIR / pkg
-            if src.exists():
-                free = boot_free_mb(boot_path)
-                need = src.stat().st_size / 1024 / 1024
-                if need > free - 20:
-                    raise ValueError(
-                        f"Not enough space on boot partition: need {need:.0f} MB, "
-                        f"only {free:.0f} MB free. Use a larger SD card or skip offline packages."
-                    )
-                shutil.copy2(src, pkg_dir / pkg)
-                pkg_names.append(pkg)
+            if not src.exists():
+                continue
+            free = boot_free_mb(boot_path)
+            need = src.stat().st_size / 1024 / 1024
+            if need > free - 20:
+                skipped_pkgs.append((pkg, f"{need:.0f} MB, only {free:.0f} MB free on boot partition"))
+                continue
+            shutil.copy2(src, pkg_dir / pkg)
+            pkg_names.append(pkg)
 
     # 2. Render firstrun.sh
     template = TEMPLATE_FILE.read_text()
@@ -320,6 +320,7 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         info += "  (none — will install from internet)\n"
     info += f"\nInstall CUPS   : {'yes' if install_cups else 'no'}\n"
     _write_unix(boot / "companionpi-info.txt", info)
+    return {"bundled": pkg_names, "skipped": skipped_pkgs}
 
 
 # --------------------------------------------------------------------------- #
@@ -335,11 +336,13 @@ def index():
         prev = read_previous_config(partitions[0]["path"])
         detected_type = detect_image_type(partitions[0]["path"])
     cached = get_cached_packages()
+    boot_free = round(boot_free_mb(partitions[0]["path"])) if partitions else None
     return render_template("index.html", partitions=partitions,
                            repo_url_default=REPO_URL_DEFAULT,
                            imager_version=IMAGER_VERSION,
                            prev=prev, cached_packages=cached,
-                           detected_image_type=detected_type)
+                           detected_image_type=detected_type,
+                           boot_free_mb=boot_free)
 
 
 @app.route("/api/releases")
@@ -427,14 +430,23 @@ def do_inject():
         return redirect(url_for("index"))
 
     try:
-        inject(boot_path, hostname, wifi_country, repo_url, username, password,
-               ap_ssid, ap_password, install_cups, package_files, image_type)
-        pkg_note = f" — {len(package_files)} package(s) bundled offline" if package_files else " — internet install"
+        result = inject(boot_path, hostname, wifi_country, repo_url, username, password,
+                        ap_ssid, ap_password, install_cups, package_files, image_type)
+        bundled = result.get("bundled", [])
+        skipped = result.get("skipped", [])
+        if bundled:
+            pkg_note = f" — {len(bundled)} package(s) bundled offline"
+        else:
+            pkg_note = " — will install from internet on first boot"
         flash(
-            f"Injected successfully into {boot_path}{pkg_note}. "
+            f"Injected into {boot_path}{pkg_note}. "
             "Eject the SD card safely and insert into your Raspberry Pi.",
             "success",
         )
+        for name, reason in skipped:
+            flash(f"⚠ '{name}' skipped — {reason}. "
+                  f"Tip: use CompanionPi image (Companion pre-installed) or install via internet.",
+                  "warning")
     except Exception as e:
         flash(f"Injection failed: {e}", "error")
 

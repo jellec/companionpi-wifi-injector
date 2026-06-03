@@ -247,6 +247,16 @@
         </div>
 
         <!-- Cached packages list -->
+        {% if boot_free_mb is not none %}
+        <div class="flex items-center gap-2 text-xs {% if boot_free_mb < 50 %}text-red-400{% elif boot_free_mb < 200 %}text-amber-400{% else %}text-slate-500{% endif %}">
+          <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+          </svg>
+          Boot partition free: <strong>{{ boot_free_mb }} MB</strong>
+          {% if boot_free_mb < 200 %} — not enough for large packages{% endif %}
+        </div>
+        {% endif %}
+
         {% if cached_packages %}
         <div class="space-y-2">
           <div class="text-xs text-slate-500 font-medium">Will be bundled on SD card — delete to remove:</div>
