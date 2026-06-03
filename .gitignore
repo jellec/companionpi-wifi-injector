@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 *.pyo
 packages/*.deb
+packages/*.tar.gz
+packages/*.tgz
