@@ -18,7 +18,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "1.1.0"
+IMAGER_VERSION = "1.1.1"
 
 SCRIPT_DIR = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -71,6 +71,8 @@ def read_previous_config(boot_path: str) -> dict:
                 ("WiFi country", "wifi_country"),
                 ("Repo URL", "repo_url"),
                 ("Imager version", "prev_version"),
+                ("AP SSID", "ap_ssid"),
+                ("AP password", "ap_password"),
             ]:
                 if line.startswith(f"{key}"):
                     result[field] = line.split(":", 1)[-1].strip()
@@ -113,7 +115,8 @@ def _write_unix(path: Path, text: str) -> None:
 
 
 def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
-           username: str, password: str) -> None:
+           username: str, password: str, ap_ssid: str = "CompanionPi",
+           ap_password: str = "companion123") -> None:
     boot = Path(boot_path)
 
     if not (boot / "cmdline.txt").exists():
@@ -127,6 +130,8 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         ("{{WIFI_COUNTRY}}", wifi_country),
         ("{{REPO_URL}}", repo_url),
         ("{{USERNAME}}", username),
+        ("{{AP_SSID}}", ap_ssid),
+        ("{{AP_PASSWORD}}", ap_password),
     ]:
         rendered = rendered.replace(key, val)
 
@@ -167,6 +172,8 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         f"Hostname       : {hostname}\n"
         f"Username       : {username}\n"
         f"WiFi country   : {wifi_country}\n"
+        f"AP SSID        : {ap_ssid}\n"
+        f"AP password    : {ap_password}\n"
         f"\n"
         f"First boot will install companionpi-wifi from the repo above.\n"
         f"Check /boot/firmware/firstrun.log on the RPi for install progress.\n"
@@ -198,13 +205,16 @@ def do_inject():
     repo_url     = request.form.get("repo_url", REPO_URL_DEFAULT).strip()
     username     = re.sub(r"[^a-z0-9_]", "", request.form.get("username", "companion"))
     password     = request.form.get("password", "companion123")
+    ap_ssid      = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
+    ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
 
     if not boot_path:
         flash("Select a boot partition first.", "error")
         return redirect(url_for("index"))
 
     try:
-        inject(boot_path, hostname, wifi_country, repo_url, username, password)
+        inject(boot_path, hostname, wifi_country, repo_url, username, password,
+               ap_ssid, ap_password)
         flash(
             f"Injected successfully into {boot_path}. "
             "Eject the SD card safely and insert it into your Raspberry Pi.",

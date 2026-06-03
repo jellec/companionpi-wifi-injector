@@ -137,6 +137,22 @@
           </div>
         </div>
 
+        <div class="border-t border-slate-700 pt-4 space-y-3">
+          <div class="text-xs font-semibold uppercase tracking-wider text-slate-500">Wi-Fi Access Point (fallback when no known network found)</div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-300 mb-1">AP SSID</label>
+              <input type="text" name="ap_ssid" value="{{ prev.ap_ssid or 'CompanionPi' }}"
+                     class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-300 mb-1">AP Password</label>
+              <input type="text" name="ap_password" value="{{ prev.ap_password or 'companion123' }}"
+                     class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
+            </div>
+          </div>
+        </div>
+
         <details class="text-xs text-slate-500">
           <summary class="cursor-pointer hover:text-slate-400 select-none">Advanced: Repository URL</summary>
           <div class="mt-2">

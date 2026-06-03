@@ -8,6 +8,8 @@ HOSTNAME="{{HOSTNAME}}"
 WIFI_COUNTRY="{{WIFI_COUNTRY}}"
 REPO_URL="{{REPO_URL}}"
 USERNAME="{{USERNAME}}"
+AP_SSID="{{AP_SSID}}"
+AP_PASSWORD="{{AP_PASSWORD}}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
 
@@ -220,11 +222,15 @@ fi
 log "Running install.sh..."
 bash /opt/companionpi-wifi/install.sh
 
-# Set wifi country in settings and at OS level
-log "Setting Wi-Fi country: $WIFI_COUNTRY"
+# Write WiFi and AP settings to settings.env
+log "Applying Wi-Fi settings (country=$WIFI_COUNTRY AP=$AP_SSID)"
 sed -i "s/^WIFI_COUNTRY=.*/WIFI_COUNTRY=$WIFI_COUNTRY/" \
     /etc/companionpi-wifi/settings.env
-# Apply country code and unblock WiFi
+sed -i "s/^WLAN0_AP_SSID=.*/WLAN0_AP_SSID=$AP_SSID/" \
+    /etc/companionpi-wifi/settings.env
+sed -i "s/^WLAN0_AP_PASSWORD=.*/WLAN0_AP_PASSWORD=$AP_PASSWORD/" \
+    /etc/companionpi-wifi/settings.env
+# Apply country code and unblock WiFi at OS level
 raspi-config nonint do_wifi_country "$WIFI_COUNTRY" 2>/dev/null || \
     iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
 rfkill unblock wifi 2>/dev/null || true
