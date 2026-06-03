@@ -24,7 +24,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "0.2.4"
+IMAGER_VERSION = "0.2.5"
 
 SCRIPT_DIR   = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -417,7 +417,10 @@ def do_inject():
     ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
     install_cups = request.form.get("install_cups") == "on"
     image_type   = request.form.get("image_type", "rpios")
-    package_files = request.form.getlist("bundle_pkg")
+    # Always bundle all cached packages — user deletes what they don't want
+    package_files = [f.name for f in PACKAGES_DIR.glob("*.deb")]
+    package_files += [f.name for f in PACKAGES_DIR.glob("*.tar.gz")]
+    package_files += [f.name for f in PACKAGES_DIR.glob("*.tgz")]
 
     if not boot_path:
         flash("Select a boot partition first.", "error")
