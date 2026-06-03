@@ -30,7 +30,10 @@ log "Starting install status page on port 80..."
 cat > /tmp/cpw_status.py << 'PYEOF'
 import http.server, html, os
 
-LOG_FILE = "/boot/firmware/firstrun.log"
+LOG_FILE  = "/boot/firmware/firstrun.log"
+HOSTNAME  = open("/etc/hostname").read().strip()
+DONE_FLAG = "/tmp/cpw_install_done"
+FAIL_FLAG = "/tmp/cpw_install_failed"
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -40,28 +43,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 content = html.escape(f.read())
         except Exception:
             content = "Waiting for log..."
+        done   = os.path.exists(DONE_FLAG)
+        failed = os.path.exists(FAIL_FLAG)
+        refresh = "" if (done or failed) else '<meta http-equiv="refresh" content="3">'
+        if done:
+            status_html = f'''<div style="margin:24px;background:#052e16;border:1px solid #166534;border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+              <div style="color:#4ade80;font-weight:600">&#10003; Install complete!</div>
+              <a href="http://{HOSTNAME}.local:8001" target="_blank"
+                 style="background:#2563eb;color:white;padding:8px 18px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600">
+                Open Companion &#8594;
+              </a>
+            </div>'''
+            badge = '<div class="badge" style="background:#4ade801a;color:#4ade80;border:1px solid #4ade8033"><span class="dot" style="background:#4ade80"></span>Done</div>'
+        elif failed:
+            status_html = '<div style="margin:24px;background:#450a0a;border:1px solid #7f1d1d;border-radius:12px;padding:16px 20px;color:#fca5a5;font-weight:600">&#10007; Install failed — check log above</div>'
+            badge = '<div class="badge" style="background:#dc26261a;color:#fca5a5;border:1px solid #dc262633"><span class="dot" style="background:#fca5a5"></span>Failed</div>'
+        else:
+            status_html = ""
+            badge = '<div class="badge"><span class="dot"></span>Running</div>'
+
         body = f"""<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="3">
+  {refresh}
   <title>CompanionPi Installing...</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230d1117'/><rect width='64' height='64' rx='14' fill='%232563eb' fill-opacity='.18'/><path d='M9 28a32 32 0 0146 0M17 36a21 21 0 0130 0M25 44a12 12 0 0114 0' stroke='%233b82f6' stroke-width='4.5' stroke-linecap='round' fill='none'/><circle cx='28.5' cy='51.5' r='4' fill='%23dc2626'/><circle cx='35.5' cy='51.5' r='4' fill='%23dc2626'/><circle cx='32' cy='49.5' r='4' fill='%23dc2626'/><ellipse cx='32' cy='54' rx='5.5' ry='4' fill='%23dc2626'/></svg>">
   <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ background: #0d1117; color: #e2e8f0; font-family: system-ui, sans-serif; }}
-    .topbar {{ background: #0f1923; border-bottom: 1px solid #1e293b; padding: 14px 24px; display: flex; align-items: center; gap: 14px; }}
-    .logo {{ width: 40px; height: 40px; }}
-    .title {{ font-size: 15px; font-weight: 600; color: #f1f5f9; }}
-    .sub {{ font-size: 11px; color: #64748b; margin-top: 2px; }}
-    .badge {{ margin-left: auto; background: #f59e0b1a; color: #fbbf24; border: 1px solid #f59e0b33; border-radius: 99px; padding: 3px 12px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px; }}
-    .dot {{ width: 7px; height: 7px; border-radius: 50%; background: #fbbf24; animation: pulse 1.5s infinite; }}
-    @keyframes pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:.3}} }}
-    .logbox {{ margin: 24px; background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 20px; }}
-    pre {{ font-size: 12px; line-height: 1.75; color: #94a3b8; white-space: pre-wrap; word-break: break-all; }}
-    .done {{ color: #34d399 !important; }}
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{background:#0d1117;color:#e2e8f0;font-family:system-ui,sans-serif}}
+    .topbar{{background:#0f1923;border-bottom:1px solid #1e293b;padding:14px 24px;display:flex;align-items:center;gap:14px}}
+    .logo{{width:40px;height:40px}}
+    .title{{font-size:15px;font-weight:600;color:#f1f5f9}}
+    .sub{{font-size:11px;color:#64748b;margin-top:2px}}
+    .badge{{margin-left:auto;background:#f59e0b1a;color:#fbbf24;border:1px solid #f59e0b33;border-radius:99px;padding:3px 12px;font-size:11px;font-weight:600;display:flex;align-items:center;gap:6px}}
+    .dot{{width:7px;height:7px;border-radius:50%;background:#fbbf24;animation:pulse 1.5s infinite}}
+    @keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
+    .logbox{{margin:24px;background:#020617;border:1px solid #1e293b;border-radius:12px;padding:20px}}
+    pre{{font-size:12px;line-height:1.75;color:#94a3b8;white-space:pre-wrap;word-break:break-all}}
   </style>
-  <script>window.onload = () => window.scrollTo(0, document.body.scrollHeight);</script>
+  <script>window.onload=()=>window.scrollTo(0,document.body.scrollHeight)</script>
 </head>
 <body>
   <div class="topbar">
@@ -79,12 +99,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
     </svg>
     <div>
       <div class="title">CompanionPi — Installing</div>
-      <div class="sub">First boot setup in progress &nbsp;·&nbsp; refreshes every 3s</div>
+      <div class="sub">First boot setup &nbsp;·&nbsp; {HOSTNAME}.local</div>
     </div>
-    <div class="badge"><span class="dot"></span>Running</div>
+    {badge}
   </div>
+  {status_html}
   <div class="logbox">
-    <pre class="{'done' if 'First boot complete' in content else ''}">{content}</pre>
+    <pre>{content}</pre>
   </div>
 </body>
 </html>"""
@@ -109,20 +130,58 @@ sed -i 's| systemd\.run=[^ ]*||g' /boot/firmware/cmdline.txt
 sed -i 's| systemd\.run_success_action=[^ ]*||g' /boot/firmware/cmdline.txt
 sed -i 's| systemd\.unit=[^ ]*||g' /boot/firmware/cmdline.txt
 
-# Update apt
-log "Updating package lists..."
-apt-get update -qq
+# Wait for network / DNS before proceeding
+log "Waiting for network..."
+NETWORK_OK=0
+for i in $(seq 1 60); do
+    if getent hosts deb.debian.org >/dev/null 2>&1; then
+        log "Network ready (try $i)"
+        NETWORK_OK=1
+        break
+    fi
+    log "  No DNS yet, waiting... ($i/60)"
+    sleep 2
+done
 
-# Install dependencies
-log "Installing packages (this may take a few minutes)..."
-apt-get install -y -qq \
-    git \
-    python3 \
-    python3-pip \
-    python3-flask \
-    network-manager \
-    dnsmasq \
-    curl
+if [ $NETWORK_OK -eq 0 ]; then
+    log "ERROR: Network/DNS not available after 120s — cannot install packages."
+    touch /tmp/cpw_install_failed
+    sleep 300
+    kill $STATUS_PID 2>/dev/null || true
+    rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
+    reboot
+fi
+
+# Update apt (retry up to 3 times)
+for attempt in 1 2 3; do
+    log "Updating package lists (attempt $attempt/3)..."
+    apt-get update -qq && break
+    [ $attempt -lt 3 ] && { log "  Retrying in 15s..."; sleep 15; }
+done
+
+# Install dependencies (retry up to 3 times)
+for attempt in 1 2 3; do
+    log "Installing packages — attempt $attempt/3..."
+    apt-get install -y -qq --fix-missing \
+        git \
+        python3 \
+        python3-pip \
+        python3-flask \
+        network-manager \
+        dnsmasq \
+        curl && break
+    [ $attempt -lt 3 ] && { log "  apt failed, retrying in 30s..."; sleep 30; }
+done
+
+# Verify git is available
+if ! command -v git >/dev/null 2>&1; then
+    log "ERROR: git not installed after apt — aborting."
+    touch /tmp/cpw_install_failed
+    sleep 300
+    kill $STATUS_PID 2>/dev/null || true
+    rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
+    reboot
+fi
 
 # rpi-clone
 log "Installing rpi-clone..."
@@ -142,6 +201,15 @@ log "Cloning companionpi-wifi from $REPO_URL ..."
 rm -rf /opt/companionpi-wifi
 git clone --depth 1 "$REPO_URL" /opt/companionpi-wifi
 
+if [ ! -f /opt/companionpi-wifi/install.sh ]; then
+    log "ERROR: git clone failed — /opt/companionpi-wifi/install.sh not found."
+    touch /tmp/cpw_install_failed
+    sleep 300
+    kill $STATUS_PID 2>/dev/null || true
+    rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
+    reboot
+fi
+
 # Install
 log "Running install.sh..."
 bash /opt/companionpi-wifi/install.sh
@@ -152,9 +220,13 @@ sed -i "s/^WIFI_COUNTRY=.*/WIFI_COUNTRY=$WIFI_COUNTRY/" \
     /etc/companionpi-wifi/settings.env
 
 # Done
-log "=== First boot complete — rebooting in 5s ==="
-sleep 5
+log "=== First boot complete ==="
+touch /tmp/cpw_install_done
+log "Open http://{{HOSTNAME}}.local:8001 in your browser"
+log "Status page stays up for 5 minutes, then rebooting..."
+sleep 300
+
 kill $STATUS_PID 2>/dev/null || true
-rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py
+rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_done
 
 reboot
