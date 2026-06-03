@@ -24,7 +24,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "1.2.1"
+IMAGER_VERSION = "1.2.2"
 
 SCRIPT_DIR   = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -326,6 +326,21 @@ def index():
 def api_releases():
     releases = fetch_companion_releases()
     return json.dumps(releases), 200, {"Content-Type": "application/json"}
+
+
+@app.route("/api/import-deb", methods=["POST"])
+def api_import_deb():
+    """Import a locally downloaded .deb file into the packages cache."""
+    if "file" not in request.files:
+        return json.dumps({"error": "No file"}), 400
+    f = request.files["file"]
+    if not f.filename.endswith(".deb"):
+        return json.dumps({"error": "Only .deb files accepted"}), 400
+    safe_name = re.sub(r"[^\w\-\.]", "_", f.filename)
+    dest = PACKAGES_DIR / safe_name
+    f.save(dest)
+    size_mb = round(dest.stat().st_size / 1024 / 1024, 1)
+    return json.dumps({"ok": True, "name": safe_name, "size_mb": size_mb})
 
 
 @app.route("/api/download", methods=["POST"])

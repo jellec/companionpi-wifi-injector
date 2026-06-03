@@ -227,21 +227,55 @@
         </div>
         {% endif %}
 
-        <!-- Download new package -->
+        <!-- Download instructions + file import -->
         <div class="space-y-3">
-          <div class="text-xs text-slate-500 font-medium">Download Bitfocus Companion for offline install:</div>
-
-          <div x-show="!releasesLoaded" class="text-xs text-slate-500">
-            <svg class="inline h-3 w-3 animate-spin mr-1" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-            </svg>
-            Fetching releases...
+          <div class="rounded-lg bg-blue-900/20 ring-1 ring-blue-700/30 px-4 py-3 text-xs text-blue-200 space-y-2">
+            <div class="font-medium text-blue-100">How to add Companion offline</div>
+            <ol class="list-decimal list-inside space-y-1 text-blue-300">
+              <li>Go to
+                <a href="https://user.bitfocus.io/download" target="_blank"
+                   class="text-blue-400 underline hover:text-blue-300">user.bitfocus.io/download</a>
+                (free account)
+              </li>
+              <li>Download <span class="font-mono bg-blue-900/40 px-1 rounded">Linux ARM64 .deb</span></li>
+              <li>Import it below — it will be bundled onto the SD card</li>
+            </ol>
           </div>
 
-          <div x-show="releasesError" x-cloak class="text-xs text-red-400" x-text="'Could not fetch releases: ' + releasesError"></div>
+          <!-- File import -->
+          <div x-data="{ importing: false, importDone: false, importError: '' }" class="space-y-2">
+            <div class="text-xs text-slate-500 font-medium">Import downloaded .deb:</div>
+            <div class="flex items-center gap-3">
+              <label class="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-slate-600 hover:border-slate-500 cursor-pointer transition-colors text-sm text-slate-400 hover:text-slate-300">
+                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                </svg>
+                <span>Choose .deb file...</span>
+                <input type="file" accept=".deb" class="sr-only"
+                       @change="
+                         if (!$event.target.files[0]) return;
+                         importing = true; importDone = false; importError = '';
+                         const fd = new FormData();
+                         fd.append('file', $event.target.files[0]);
+                         fetch('/api/import-deb', { method: 'POST', body: fd })
+                           .then(r => r.json())
+                           .then(d => {
+                             importing = false;
+                             if (d.error) { importError = d.error; }
+                             else { importDone = true; setTimeout(() => window.location.reload(), 800); }
+                           })
+                           .catch(e => { importing = false; importError = String(e); });
+                       ">
+              </label>
+            </div>
+            <div x-show="importing" x-cloak class="text-xs text-slate-400">Importing...</div>
+            <div x-show="importDone" x-cloak class="text-xs text-emerald-400">✓ Imported — refreshing...</div>
+            <div x-show="importError" x-cloak class="text-xs text-red-400" x-text="importError"></div>
+          </div>
 
+          <!-- Auto-download if available via GitHub (v3.x) -->
           <div x-show="releasesLoaded && !releasesError && releases.length > 0" x-cloak class="space-y-2">
+            <div class="text-xs text-slate-500 font-medium">Or download automatically:</div>
             <template x-for="rel in releases" :key="rel.version">
               <div class="flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors"
                    :class="rel.cached ? 'border-emerald-600/30 bg-emerald-600/5' : 'border-slate-600 bg-slate-900'">
@@ -249,17 +283,14 @@
                   <div class="flex items-center gap-2">
                     <span class="text-sm font-medium text-white" x-text="'Companion ' + rel.version"></span>
                     <span x-show="rel.cached"
-                          class="text-xs bg-emerald-400/10 text-emerald-400 ring-1 ring-emerald-400/20 px-1.5 py-0.5 rounded-full">
-                      cached
-                    </span>
+                          class="text-xs bg-emerald-400/10 text-emerald-400 ring-1 ring-emerald-400/20 px-1.5 py-0.5 rounded-full">cached</span>
                   </div>
                   <div class="text-xs text-slate-500" x-text="rel.size_mb + ' MB · ARM64'"></div>
                 </div>
-                <button type="button"
-                        x-show="!rel.cached"
+                <button type="button" x-show="!rel.cached"
                         @click="downloadPkg(rel.url, rel.name, rel.version)"
                         :disabled="dl.running"
-                        class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors">
+                        class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
                   <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
                   </svg>
@@ -283,8 +314,6 @@
             <div class="text-xs" :class="dl.done ? 'text-emerald-400' : 'text-slate-500'"
                  x-text="dl.done ? '✓ Download complete' : 'Downloading...'"></div>
           </div>
-
-          <div x-show="dl.error" x-cloak class="text-xs text-red-400" x-text="'Download error: ' + dl.error"></div>
         </div>
 
         <!-- Options -->
