@@ -8,6 +8,7 @@ HOSTNAME="{{HOSTNAME}}"
 WIFI_COUNTRY="{{WIFI_COUNTRY}}"
 REPO_URL="{{REPO_URL}}"
 USERNAME="{{USERNAME}}"
+PASSWORD="{{PASSWORD}}"
 AP_SSID="{{AP_SSID}}"
 AP_PASSWORD="{{AP_PASSWORD}}"
 INSTALL_CUPS="{{INSTALL_CUPS}}"
@@ -29,6 +30,12 @@ grep -qF "127.0.1.1" /etc/hosts \
 log "Enabling SSH..."
 systemctl enable ssh
 systemctl start ssh
+
+# Set password for the companion user (CompanionPi image creates user without password)
+if [ -n "$PASSWORD" ] && [ "$IMAGE_TYPE" = "companionpi" ]; then
+    log "Setting password for user: $USERNAME"
+    echo "$USERNAME:$PASSWORD" | chpasswd 2>/dev/null || true
+fi
 
 # Write status web server to a temp file and run it
 log "Starting install status page on port 80..."

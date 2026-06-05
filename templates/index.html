@@ -12,38 +12,8 @@
 <body class="min-h-screen bg-slate-900 text-white"
   x-data="{
     selected: '',
-    confirmed: false,
-    imageType: '{{ detected_image_type }}',
-    releases: [],
-    releasesError: '',
-    releasesLoaded: false,
-    dl: { running: false, done: false, error: '', pct: 0, name: '', downloaded_mb: 0, size_mb: 0 },
-    dlTimer: null,
-    async loadReleases() {
-      try {
-        const r = await fetch('/api/releases');
-        const data = await r.json();
-        if (data.error) { this.releasesError = data.error; }
-        else { this.releases = data; }
-      } catch(e) { this.releasesError = String(e); }
-      this.releasesLoaded = true;
-    },
-    async downloadPkg(url, name, version) {
-      this.dl = { running: true, done: false, error: '', pct: 0, name: name, downloaded_mb: 0, size_mb: 0 };
-      await fetch('/api/download', { method: 'POST', body: JSON.stringify({ url, name, version }), headers: { 'Content-Type': 'application/json' } });
-      this.dlTimer = setInterval(async () => {
-        const r = await fetch('/api/download/status');
-        const s = await r.json();
-        this.dl = s;
-        if (!s.running) { clearInterval(this.dlTimer); if (s.done) { window.location.reload(); } }
-      }, 500);
-    },
-    async deletePkg(name) {
-      await fetch('/api/package/delete', { method: 'POST', body: JSON.stringify({ name }), headers: { 'Content-Type': 'application/json' } });
-      window.location.reload();
-    }
-  }"
-  x-init="loadReleases()">
+    confirmed: false
+  }">
 
   <div class="max-w-xl mx-auto px-4 py-12 space-y-6">
 
@@ -56,7 +26,7 @@
         <h1 class="text-2xl font-bold">CompanionPi Imager</h1>
         <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">v{{ imager_version }}</span>
       </div>
-      <p class="text-sm text-slate-400">Inject CompanionPi setup into a freshly flashed RPi OS SD card</p>
+      <p class="text-sm text-slate-400">Inject network &amp; WiFi setup into a freshly flashed CompanionPi SD card</p>
     </div>
 
     <!-- Previous install detected -->
@@ -89,45 +59,20 @@
 
     <form method="post" action="{{ url_for('do_inject') }}" class="space-y-5">
 
-      <!-- Image type selector -->
-      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-3">
-        <div class="text-sm font-semibold text-white">Image type</div>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="flex items-start gap-3 cursor-pointer rounded-lg border px-4 py-3 transition-colors"
-                 :class="imageType === 'rpios' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 hover:border-slate-500'"
-                 @click="imageType = 'rpios'">
-            <input type="radio" class="sr-only">
-            <span class="h-4 w-4 rounded-full border-2 shrink-0 mt-0.5 transition-colors"
-                  :class="imageType === 'rpios' ? 'border-blue-500 bg-blue-500' : 'border-slate-500'"></span>
-            <div>
-              <div class="text-sm font-medium text-white">RPi OS Lite</div>
-              <div class="text-xs text-slate-500 mt-0.5">Standard Raspberry Pi OS — installs Companion + network manager on first boot</div>
-            </div>
-          </label>
-          <label class="flex items-start gap-3 cursor-pointer rounded-lg border px-4 py-3 transition-colors"
-                 :class="imageType === 'companionpi' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 hover:border-slate-500'"
-                 @click="imageType = 'companionpi'">
-            <input type="radio" class="sr-only">
-            <span class="h-4 w-4 rounded-full border-2 shrink-0 mt-0.5 transition-colors"
-                  :class="imageType === 'companionpi' ? 'border-blue-500 bg-blue-500' : 'border-slate-500'"></span>
-            <div>
-              <div class="text-sm font-medium text-white flex items-center gap-1.5">
-                CompanionPi
-                <span class="text-xs bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 px-1.5 py-0.5 rounded-full font-normal">by Bitfocus</span>
-              </div>
-              <div class="text-xs text-slate-500 mt-0.5">Official CompanionPi image — Companion pre-installed, only injects network config</div>
-              <a href="https://user.bitfocus.io/download" target="_blank"
-                 class="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block"
-                 @click.stop>↗ user.bitfocus.io/download</a>
-            </div>
-          </label>
+      <!-- CompanionPi info card -->
+      <div class="rounded-lg bg-blue-900/20 ring-1 ring-blue-700/30 px-4 py-3 text-xs text-blue-300 space-y-1.5">
+        <div class="flex items-center gap-2">
+          <span class="font-semibold text-blue-100 text-sm">CompanionPi</span>
+          <span class="bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 px-1.5 py-0.5 rounded-full font-medium">by Bitfocus</span>
         </div>
-        <div x-show="imageType === 'companionpi'" x-cloak
-             class="rounded-lg bg-blue-900/20 ring-1 ring-blue-700/30 px-3 py-2 text-xs text-blue-300">
-          Flash the <strong>CompanionPi ARM64</strong> image with Raspberry Pi Imager, then inject here for network setup.
+        <div class="text-blue-300">Official CompanionPi image (RPi OS Trixie ARM64) — Companion pre-installed, only network config is injected.</div>
+        <div>Don't have the image yet?
+          <a href="https://user.bitfocus.io/download" target="_blank"
+             class="text-blue-400 underline hover:text-blue-200">user.bitfocus.io/download</a>
+          → download <span class="font-mono bg-blue-900/40 px-1 rounded">CompanionPi ARM64</span>, flash with Raspberry Pi Imager.
         </div>
-        <input type="hidden" name="image_type" :value="imageType">
       </div>
+      <input type="hidden" name="image_type" value="companionpi">
 
       <!-- Step 1 -->
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-3">
@@ -135,7 +80,7 @@
           <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">1</span>
           <h2 class="font-semibold">Select boot partition</h2>
         </div>
-        <p class="text-xs text-slate-400">Flash RPi OS Lite with Raspberry Pi Imager first, then select the mounted boot volume below.</p>
+        <p class="text-xs text-slate-400">Flash the CompanionPi image with Raspberry Pi Imager first, then select the mounted boot volume below.</p>
 
         <input type="hidden" name="boot_path" :value="selected">
 
@@ -157,8 +102,8 @@
         </div>
         {% else %}
         <div class="rounded-lg bg-slate-900 px-4 py-6 text-center text-sm text-slate-500">
-          No RPi boot partition detected.
-          <div class="mt-1 text-xs">Flash RPi OS Lite, wait for <strong class="text-slate-400">bootfs</strong> to mount, then refresh.</div>
+          No boot partition detected.
+          <div class="mt-1 text-xs">Flash CompanionPi, wait for <strong class="text-slate-400">bootfs</strong> to mount, then refresh.</div>
           <button type="button" onclick="window.location.reload()"
                   class="mt-3 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300">
             Refresh
@@ -202,8 +147,9 @@
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
-            <input type="text" name="username" value="{{ prev.username or 'companion' }}"
-                   class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <input type="text" name="username" value="companion" readonly
+                   class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-500 font-mono cursor-not-allowed">
+            <div class="text-xs text-slate-600 mt-1">Fixed — CompanionPi uses the <span class="font-mono">companion</span> user</div>
           </div>
           <div class="col-span-2">
             <label class="block text-sm font-medium text-slate-300 mb-1">Password (for SSH login)</label>
@@ -238,148 +184,21 @@
         </details>
       </div>
 
-      <!-- Step 3 — Packages (RPi OS only) -->
-      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4"
-           x-show="imageType === 'rpios'" x-cloak>
+      <!-- Step 3 — Additional options -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <div class="flex items-center gap-2">
           <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">3</span>
-          <h2 class="font-semibold">Bundle packages <span class="text-slate-500 font-normal text-xs">(offline install — no internet needed on RPi)</span></h2>
+          <h2 class="font-semibold">Options</h2>
         </div>
 
-        <!-- Cached packages list -->
-        {% if boot_free_mb is not none %}
-        <div class="flex items-center gap-2 text-xs {% if boot_free_mb < 50 %}text-red-400{% elif boot_free_mb < 200 %}text-amber-400{% else %}text-slate-500{% endif %}">
-          <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
-          </svg>
-          Boot partition free: <strong>{{ boot_free_mb }} MB</strong>
-          {% if boot_free_mb < 200 %} — not enough for large packages{% endif %}
-        </div>
-        {% endif %}
-
-        {% if cached_packages %}
-        <div class="space-y-2">
-          <div class="text-xs text-slate-500 font-medium">Will be bundled on SD card — delete to remove:</div>
-          {% for pkg in cached_packages %}
-          <div class="flex items-center gap-3 rounded-lg bg-emerald-900/20 ring-1 ring-emerald-700/30 px-3 py-2.5">
-            <svg class="h-4 w-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 10V7"/>
-            </svg>
-            <span class="flex-1 text-sm text-white font-mono truncate">{{ pkg.name }}</span>
-            <span class="text-xs text-slate-500 shrink-0">{{ pkg.size_mb }} MB</span>
-            <button type="button" @click="deletePkg('{{ pkg.name }}')"
-                    class="text-slate-600 hover:text-red-400 transition-colors shrink-0" title="Remove from bundle">
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" name="install_cups"
+                 class="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-blue-500">
+          <div>
+            <div class="text-sm text-slate-300">Install print server (CUPS)</div>
+            <div class="text-xs text-slate-500">Requires internet on first boot · install takes extra ~5 min</div>
           </div>
-          {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- Download instructions + file import -->
-        <div class="space-y-3">
-          <div class="rounded-lg bg-blue-900/20 ring-1 ring-blue-700/30 px-4 py-3 text-xs text-blue-200 space-y-2">
-            <div class="font-medium text-blue-100">How to add Companion offline</div>
-            <ol class="list-decimal list-inside space-y-1 text-blue-300">
-              <li>Go to
-                <a href="https://user.bitfocus.io/download" target="_blank"
-                   class="text-blue-400 underline hover:text-blue-300">user.bitfocus.io/download</a>
-                (free account)
-              </li>
-              <li>Download <span class="font-mono bg-blue-900/40 px-1 rounded">Linux ARM64 .deb</span> or <span class="font-mono bg-blue-900/40 px-1 rounded">.tar.gz</span></li>
-              <li>Import it below — it will be bundled onto the SD card</li>
-            </ol>
-          </div>
-
-          <!-- File import -->
-          <div x-data="{ importing: false, importDone: false, importError: '' }" class="space-y-2">
-            <div class="text-xs text-slate-500 font-medium">Import downloaded package (.tar.gz or .deb):</div>
-            <div class="flex items-center gap-3">
-              <label class="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-slate-600 hover:border-slate-500 cursor-pointer transition-colors text-sm text-slate-400 hover:text-slate-300">
-                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                </svg>
-                <span>Choose file...</span>
-                <input type="file" accept=".deb,.tar.gz,.tgz,application/gzip,application/x-gzip,application/x-tar,application/octet-stream"
-                       style="position:absolute;width:0;height:0;opacity:0;"
-                       @change="
-                         if (!$event.target.files[0]) return;
-                         importing = true; importDone = false; importError = '';
-                         const fd = new FormData();
-                         fd.append('file', $event.target.files[0]);
-                         fetch('/api/import-deb', { method: 'POST', body: fd })
-                           .then(r => r.json())
-                           .then(d => {
-                             importing = false;
-                             if (d.error) { importError = d.error; }
-                             else { importDone = true; setTimeout(() => window.location.reload(), 800); }
-                           })
-                           .catch(e => { importing = false; importError = String(e); });
-                       ">
-              </label>
-            </div>
-            <div x-show="importing" x-cloak class="text-xs text-slate-400">Importing...</div>
-            <div x-show="importDone" x-cloak class="text-xs text-emerald-400">✓ Imported — refreshing...</div>
-            <div x-show="importError" x-cloak class="text-xs text-red-400" x-text="importError"></div>
-          </div>
-
-          <!-- Auto-download if available via GitHub (v3.x) -->
-          <div x-show="releasesLoaded && !releasesError && releases.length > 0" x-cloak class="space-y-2">
-            <div class="text-xs text-slate-500 font-medium">Or download automatically:</div>
-            <template x-for="rel in releases" :key="rel.version">
-              <div class="flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors"
-                   :class="rel.cached ? 'border-emerald-600/30 bg-emerald-600/5' : 'border-slate-600 bg-slate-900'">
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="text-sm font-medium text-white" x-text="'Companion ' + rel.version"></span>
-                    <span x-show="rel.cached"
-                          class="text-xs bg-emerald-400/10 text-emerald-400 ring-1 ring-emerald-400/20 px-1.5 py-0.5 rounded-full">cached</span>
-                  </div>
-                  <div class="text-xs text-slate-500" x-text="rel.size_mb + ' MB · ARM64'"></div>
-                </div>
-                <button type="button" x-show="!rel.cached"
-                        @click="downloadPkg(rel.url, rel.name, rel.version)"
-                        :disabled="dl.running"
-                        class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
-                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                  </svg>
-                  Download
-                </button>
-              </div>
-            </template>
-          </div>
-
-          <!-- Download progress -->
-          <div x-show="dl.running || (dl.done && !dl.error)" x-cloak
-               class="rounded-lg bg-slate-900 border border-slate-600 px-4 py-3 space-y-2">
-            <div class="flex items-center justify-between text-xs text-slate-300">
-              <span x-text="dl.name"></span>
-              <span x-show="dl.size_mb > 0" x-text="dl.downloaded_mb + ' / ' + dl.size_mb + ' MB'"></span>
-            </div>
-            <div class="w-full bg-slate-700 rounded-full h-1.5">
-              <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
-                   :style="'width: ' + dl.pct + '%'"></div>
-            </div>
-            <div class="text-xs" :class="dl.done ? 'text-emerald-400' : 'text-slate-500'"
-                 x-text="dl.done ? '✓ Download complete' : 'Downloading...'"></div>
-          </div>
-        </div>
-
-        <!-- Options -->
-        <div class="border-t border-slate-700 pt-4 space-y-2">
-          <div class="text-xs text-slate-500 font-medium">Additional options:</div>
-          <label class="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" name="install_cups"
-                   class="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-blue-500">
-            <div>
-              <div class="text-sm text-slate-300">Install print server (CUPS)</div>
-              <div class="text-xs text-slate-500">Requires internet on first boot · install takes extra ~5 min</div>
-            </div>
-          </label>
-        </div>
+        </label>
       </div>
 
       <!-- Step 4 — Inject -->
@@ -391,15 +210,16 @@
 
         <div class="rounded-lg bg-slate-900 px-4 py-3 text-xs text-slate-400 space-y-1.5">
           <div class="flex gap-2"><span class="text-emerald-400 shrink-0">1.</span> Injects firstrun.sh into the boot partition</div>
-          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">2.</span> Creates user account (userconf.txt)</div>
-          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">3.</span> Enables SSH on first boot</div>
-          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">4.</span> On first boot: RPi installs CompanionPi automatically (~5 min)</div>
+          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">2.</span> Sets password on the <span class="font-mono">companion</span> user (userconf.txt)</div>
+          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">3.</span> SSH already enabled in CompanionPi image</div>
+          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">4.</span> On first boot: installs companionpi-wifi network manager (~3 min)</div>
+          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">5.</span> Companion already installed — starts automatically</div>
         </div>
 
         <label class="flex items-center gap-3 cursor-pointer select-none">
           <input type="checkbox" x-model="confirmed"
                  class="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-blue-500">
-          <span class="text-sm text-slate-300">I have flashed RPi OS Lite and selected the correct boot partition</span>
+          <span class="text-sm text-slate-300">I have flashed CompanionPi and selected the correct boot partition</span>
         </label>
 
         <button type="submit"
@@ -417,7 +237,7 @@
 
     <p class="text-center text-xs text-slate-600">
       After injecting: eject the SD card safely, insert into RPi, and power on.<br>
-      First boot takes ~5 minutes while packages are installed.
+      First boot takes ~3 minutes — Companion starts automatically.
     </p>
 
 

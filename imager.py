@@ -24,7 +24,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "0.2.6"
+IMAGER_VERSION = "0.2.7"
 
 SCRIPT_DIR   = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -91,7 +91,7 @@ def detect_image_type(boot_path: str) -> str:
         content = cmdline.read_text()
         if "companion" in content.lower():
             return "companionpi"
-    return "rpios"
+    return "companionpi"
 
 
 def read_previous_config(boot_path: str) -> dict:
@@ -234,7 +234,7 @@ def _write_unix(path: Path, text: str) -> None:
 def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
            username: str, password: str, ap_ssid: str = "CompanionPi",
            ap_password: str = "companion123", install_cups: bool = False,
-           package_files: list = None, image_type: str = "rpios") -> dict:
+           package_files: list = None, image_type: str = "companionpi") -> dict:
     boot = Path(boot_path)
 
     if not (boot / "cmdline.txt").exists():
@@ -266,6 +266,7 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
         ("{{WIFI_COUNTRY}}", wifi_country),
         ("{{REPO_URL}}", repo_url),
         ("{{USERNAME}}", username),
+        ("{{PASSWORD}}", password),
         ("{{AP_SSID}}", ap_ssid),
         ("{{AP_PASSWORD}}", ap_password),
         ("{{INSTALL_CUPS}}", "true" if install_cups else "false"),
@@ -331,18 +332,12 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
 def index():
     partitions = find_boot_partitions()
     prev = {}
-    detected_type = "rpios"
     if partitions:
         prev = read_previous_config(partitions[0]["path"])
-        detected_type = detect_image_type(partitions[0]["path"])
-    cached = get_cached_packages()
-    boot_free = round(boot_free_mb(partitions[0]["path"])) if partitions else None
     return render_template("index.html", partitions=partitions,
                            repo_url_default=REPO_URL_DEFAULT,
                            imager_version=IMAGER_VERSION,
-                           prev=prev, cached_packages=cached,
-                           detected_image_type=detected_type,
-                           boot_free_mb=boot_free)
+                           prev=prev)
 
 
 @app.route("/api/releases")
@@ -419,11 +414,11 @@ def do_inject():
     ap_ssid      = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
     ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
     install_cups = request.form.get("install_cups") == "on"
-    image_type   = request.form.get("image_type", "rpios")
-    # Always bundle all cached packages — user deletes what they don't want
-    package_files = [f.name for f in PACKAGES_DIR.glob("*.deb")]
-    package_files += [f.name for f in PACKAGES_DIR.glob("*.tar.gz")]
-    package_files += [f.name for f in PACKAGES_DIR.glob("*.tgz")]
+    image_type   = request.form.get("image_type", "companionpi")
+    # CompanionPi always uses 'companion' user (pre-created in the image)
+    if image_type == "companionpi":
+        username = "companion"
+    package_files = []  # not used for companionpi; kept for future rpios support
 
     if not boot_path:
         flash("Select a boot partition first.", "error")
@@ -434,19 +429,11 @@ def do_inject():
                         ap_ssid, ap_password, install_cups, package_files, image_type)
         bundled = result.get("bundled", [])
         skipped = result.get("skipped", [])
-        if bundled:
-            pkg_note = f" — {len(bundled)} package(s) bundled offline"
-        else:
-            pkg_note = " — will install from internet on first boot"
         flash(
-            f"Injected into {boot_path}{pkg_note}. "
+            f"Injected into {boot_path}. "
             "Eject the SD card safely and insert into your Raspberry Pi.",
             "success",
         )
-        for name, reason in skipped:
-            flash(f"⚠ '{name}' skipped — {reason}. "
-                  f"Tip: use CompanionPi image (Companion pre-installed) or install via internet.",
-                  "warning")
     except Exception as e:
         flash(f"Injection failed: {e}", "error")
 
