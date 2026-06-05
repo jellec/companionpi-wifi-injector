@@ -148,26 +148,37 @@ if ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
     echo "nameserver 8.8.8.8" >> /etc/resolv.conf
 fi
 
-# Wait for network / IP connectivity before proceeding
-log "Waiting for network..."
+# Wait for a default route first (routing not ready immediately at systemd.run time)
+log "Waiting for default route..."
+for i in $(seq 1 60); do
+    if ip route show default 2>/dev/null | grep -q via; then
+        log "Default route present (try $i)"
+        break
+    fi
+    [ $i -eq 60 ] && log "  WARNING: no default route after 120s, continuing anyway..."
+    sleep 2
+done
+
+# Wait for internet connectivity (TCP to codeberg.org port 443)
+log "Waiting for internet..."
 NETWORK_OK=0
 for i in $(seq 1 60); do
-    if ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
-        log "Network ready (try $i)"
+    if bash -c 'echo > /dev/tcp/codeberg.org/443' 2>/dev/null; then
+        log "Internet reachable (try $i)"
         NETWORK_OK=1
         break
     fi
-    log "  No network yet, waiting... ($i/60)"
+    log "  No internet yet, waiting... ($i/60)"
     sleep 2
 done
 
 if [ $NETWORK_OK -eq 0 ]; then
-    log "ERROR: Network/DNS not available after 120s — cannot install packages."
+    log "ERROR: Internet not available after 120s — cannot install packages."
     touch /tmp/cpw_install_failed
     sleep 300
     kill $STATUS_PID 2>/dev/null || true
     rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
-    reboot
+    reboot; exit 1
 fi
 
 # Update apt (retry up to 3 times)
@@ -198,7 +209,7 @@ if ! command -v git >/dev/null 2>&1; then
     sleep 300
     kill $STATUS_PID 2>/dev/null || true
     rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
-    reboot
+    reboot; exit 1
 fi
 
 # rpi-clone
@@ -225,7 +236,7 @@ if [ ! -f /opt/companionpi-wifi/install.sh ]; then
     sleep 300
     kill $STATUS_PID 2>/dev/null || true
     rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
-    reboot
+    reboot; exit 1
 fi
 
 # Install
