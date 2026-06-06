@@ -1,0 +1,11 @@
+services:
+  injector:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "7070:7070"
+    volumes:
+      - wifi-repo-cache:/app/wifi-repo-cache
+
+volumes:
+  wifi-repo-cache:
