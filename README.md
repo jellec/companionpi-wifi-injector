@@ -1,84 +1,97 @@
 # companionpi-wifi-injector
 
-**Version:** 0.3.x | NAS webapp — runs as Docker container, accessible in the local network.
+**Version:** 0.3.x | NAS webapp + local companion-agent
 
-Generates a downloadable ZIP bundle that injects CompanionPi network setup onto a freshly flashed SD card. No internet needed on the Raspberry Pi during first boot.
+Generates and writes the CompanionPi network setup onto a freshly flashed SD card. Everything via the browser — no CLI needed.
 
 ---
 
 ## Architecture
 
 ```
-NAS (Docker)                     Mac                         SD card / RPi
-┌─────────────────────┐          ┌──────────────┐            ┌───────────────┐
-│ companionpi-wifi-   │  bundle  │  inject.sh   │  copies    │  firstrun.sh  │
-│ injector (Flask)    │─────────▶│  (bash)      │───────────▶│  cmdline.txt  │
-│ :7070               │  ZIP     │              │            │  companionpi- │
-│                     │          └──────────────┘            │  wifi/        │
-│ caches companionpi- │                                      └───────────────┘
-│ wifi repo locally   │
-└─────────────────────┘
+NAS (Docker :7070)               Mac/Windows (localhost:7072)     SD card
+┌──────────────────────┐         ┌──────────────────────┐         ┌─────────────┐
+│ companionpi-wifi-    │ bundle  │ companion-agent       │ write   │ firstrun.sh │
+│ injector (Flask)     │────────▶│ (.app / .exe)         │────────▶│ cmdline.txt │
+│                      │ base64  │                        │         │ wifi/       │
+│ - caches wifi repo   │         │ - detecteert SD kaart  │         └─────────────┘
+│ - bouwt ZIP bundle   │         │ - schrijft bundle weg  │
+│ - geeft bundle via   │         │ - luistert op :7072    │
+│   API terug          │         └──────────────────────┘
+└──────────────────────┘
 ```
 
-The injector caches the [companionpi-wifi](https://codeberg.org/jellec/companionpi-wifi) repo locally and bundles it into a ZIP together with `firstrun.sh`. The Mac only needs `inject.sh` — no Python, no dependencies.
+De **NAS-webapp** draait in Docker en is bereikbaar op het lokale netwerk. De **companion-agent** draait op je Mac of Windows, detecteert gemounte SD-kaarten en schrijft de bundle weg — zonder terminal.
 
 ---
 
-## Quick start (NAS)
+## Snel starten (NAS)
 
 ```bash
 docker compose up -d
 ```
 
-Open `http://<NAS-IP>:7070` in your browser.
+Open `http://<NAS-IP>:7070` in je browser.
 
 ---
 
-## Usage
+## companion-agent installeren
 
-1. Flash **CompanionPi** image using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Open `http://<NAS-IP>:7070`
-3. Click **Fetch/update repo** (caches companionpi-wifi on the NAS)
-4. Configure hostname, Wi-Fi, credentials, AP settings
-5. Click **Download bundle** → saves `companionpi-bundle.zip`
-6. Run `inject.sh` on your Mac:
-   ```bash
-   bash inject.sh /Volumes/bootfs companionpi-bundle.zip
-   ```
-7. Eject SD card, insert into RPi, power on
-8. First boot runs `firstrun.sh` — configures everything automatically (~2–5 min), then reboots
+Download de agent via GitHub Releases (automatisch gebouwd bij elke push):
+
+| Platform | Bestand | Stap |
+|---|---|---|
+| macOS | `companion-agent-macos.zip` | Pak uit → rechtermuisknop → **Open** (eenmalig voor Gatekeeper) |
+| Windows | `companion-agent.exe` | Dubbelklik om te starten |
+
+De agent draait op de achtergrond op **http://localhost:7072**. De NAS-webapp herkent hem automatisch en toont de SD-kaartkeuzelijst.
+
+---
+
+## Gebruik
+
+1. Flash de **CompanionPi** image via [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+2. Start de companion-agent op je Mac/Windows (zie boven)
+3. Open `http://<NAS-IP>:7070`
+4. Klik **Fetch/update repo** (haalt companionpi-wifi op naar de NAS)
+5. Stel hostname, Wi-Fi, wachtwoord en AP-instellingen in
+6. Selecteer de SD-kaart in stap 4 van de wizard
+7. Klik **Injecteer op SD-kaart** → de agent schrijft alles weg
+8. Werp de SD-kaart uit, stop hem in de RPi, zet hem aan
+9. Eerste boot (~2–5 min) configureert alles automatisch, dan herstart de RPi
+
+### Zonder agent (handmatig)
+
+Als de agent niet actief is, kun je in stap 5 de **bundle downloaden** als ZIP en hem handmatig schrijven:
+
+```bash
+# Auto-detecteert RPi boot-partitie
+bash inject.sh ~/Downloads/companionpi-bundle.zip
+
+# Expliciet pad opgeven
+bash inject.sh ~/Downloads/companionpi-bundle.zip /Volumes/bootfs
+```
 
 ---
 
 ## inject.sh
 
-Mac-side helper script. Unpacks the bundle onto the mounted SD card boot partition and patches `cmdline.txt`.
+Bash-helper voor macOS. Pakt de bundle uit op de gemounte SD-kaart en patcht `cmdline.txt`. Als meerdere partities gevonden worden, verschijnt een keuzemenu.
 
-```bash
-# Auto-detect SD card (finds any mounted RPi boot partition)
-bash inject.sh ~/Downloads/companionpi-bundle.zip
-
-# Explicit path (if auto-detect picks the wrong one)
-bash inject.sh ~/Downloads/companionpi-bundle.zip /Volumes/bootfs
-```
-
-Auto-detect werkt op macOS via `/Volumes/*/cmdline.txt`. Als meerdere partities gevonden worden, toont het script een keuzemenu.
-
-Requirements: `bash`, `python3` (pre-installed on macOS), `unzip`.
+Vereisten: `bash`, `python3` (standaard op macOS), `unzip`.
 
 ---
 
-## Bundle contents
+## Bundle-inhoud
 
-| File | Purpose |
+| Bestand | Doel |
 |---|---|
-| `firstrun.sh` | Runs on first boot — configures hostname, Wi-Fi, Companion |
-| `cmdline.txt.patch` | `systemd.run` entry to trigger firstrun |
-| `userconf.txt` | Creates the `companion` user account |
-| `ssh` | Enables SSH on first boot |
-| `companionpi-wifi/` | Full wifi manager repo — installed offline from SD card |
-| `meta.json` | Bundle metadata (version, timestamp, cmdline_add) |
-| `companionpi-info.txt` | Human-readable summary of injected settings |
+| `firstrun.sh` | Draait bij eerste boot — configureert hostname, Wi-Fi, Companion |
+| `userconf.txt` | Maakt het `companion`-gebruikersaccount aan |
+| `ssh` | Zet SSH aan bij eerste boot |
+| `companionpi-wifi/` | Volledige wifi-manager repo — offline geïnstalleerd vanaf SD-kaart |
+| `meta.json` | Bundle-metadata (versie, tijdstip, cmdline_add) |
+| `companionpi-info.txt` | Leesbare samenvatting van de ingestelde waarden |
 
 ---
 
@@ -86,8 +99,25 @@ Requirements: `bash`, `python3` (pre-installed on macOS), `unzip`.
 
 ```bash
 pip install -r requirements.txt
-python imager.py
-# → http://localhost:7070
+python imager.py          # NAS-webapp op http://localhost:7070
+
+python companion-agent.py # lokale agent op http://localhost:7072
+```
+
+---
+
+## CI/CD
+
+| Workflow | Trigger | Wat |
+|---|---|---|
+| `.gitea/workflows/deploy.yml` | push naar `main` | Deploy injector op NAS |
+| `.github/workflows/build-agent.yml` | push → `companion-agent.py` | Bouw `.app`, `.exe`, Linux binary → GitHub Release `latest-agent` |
+
+De GitHub-workflow vereist een GitHub-remote (naast de Gitea/Codeberg remote). Eenmalig instellen:
+
+```bash
+git remote add github https://github.com/<user>/companionpi-wifi-injector.git
+git push github main
 ```
 
 ---
@@ -98,12 +128,12 @@ python imager.py
 - `flask>=3.0`
 - `passlib>=1.7`
 - `certifi>=2024.0`
-- `git` (for cloning companionpi-wifi repo)
+- `git` (voor het ophalen van de companionpi-wifi repo)
 
 ---
 
-## Related
+## Gerelateerd
 
-- [companionpi-wifi](https://codeberg.org/jellec/companionpi-wifi) — the network manager installed on the RPi
-- [infra-stacks/stack_companionpi](https://git.fjhome.eu/jellec/infra-stacks) — NAS deploy stack
-- [Bitfocus Companion](https://bitfocus.io/companion) — the software this is all built around
+- [companionpi-wifi](https://codeberg.org/jellec/companionpi-wifi) — de network manager die op de RPi wordt geïnstalleerd
+- [infra-stacks/stack_companionpi](https://git.fjhome.eu/jellec/infra-stacks) — NAS deploy-stack
+- [Bitfocus Companion](https://bitfocus.io/companion) — de software waar dit allemaal omheen draait

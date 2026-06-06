@@ -1,0 +1,97 @@
+name: Build companion-agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'companion-agent.py'
+      - 'agent-requirements.txt'
+      - '.github/workflows/build-agent.yml'
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install pyinstaller -r agent-requirements.txt
+      - name: Build .app bundle
+        run: pyinstaller --windowed --onedir --name companion-agent companion-agent.py
+      - name: Zip .app
+        run: cd dist && zip -r companion-agent-macos.zip companion-agent.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/companion-agent-macos.zip
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install pyinstaller -r agent-requirements.txt
+      - name: Build .exe
+        run: pyinstaller --noconsole --onefile --name companion-agent companion-agent.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/companion-agent.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install pyinstaller -r agent-requirements.txt
+      - name: Build Linux binary
+        run: pyinstaller --onefile --name companion-agent companion-agent.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/companion-agent
+
+  release:
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Rename Linux binary
+        run: mv artifacts/companion-agent artifacts/companion-agent-linux
+
+      - name: Create/update latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-agent
+          name: companion-agent (latest)
+          prerelease: true
+          make_latest: false
+          body: |
+            Automatisch gebouwde binaries — bijgewerkt bij elke push naar `main`.
+
+            | Bestand | Platform | Gebruik |
+            |---|---|---|
+            | `companion-agent-macos.zip` | macOS | Pak uit, rechtermuisknop → **Open** (eenmalig), laat draaien |
+            | `companion-agent.exe` | Windows | Dubbelklik om te starten, laat draaien |
+            | `companion-agent-linux` | Linux x86_64 | `chmod +x companion-agent-linux && ./companion-agent-linux` |
+
+            De agent luistert op **http://localhost:7072** en wordt automatisch herkend door de NAS-webapp.
+          files: |
+            artifacts/companion-agent-macos.zip
+            artifacts/companion-agent.exe
+            artifacts/companion-agent-linux
