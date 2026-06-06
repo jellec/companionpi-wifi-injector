@@ -1,76 +1,92 @@
-# companion-imager
+# companionpi-wifi-injector
 
-**Version:** 0.2.x (pre-release)
+**Version:** 0.3.x | NAS webapp — runs as Docker container, accessible in the local network.
 
-Local web app (Mac/Windows/Linux) that injects a CompanionPi network setup into a freshly flashed SD card. Runs on port 7070 and opens automatically in your browser.
-
----
-
-## What it does
-
-Writes a `firstrun.sh` script onto the SD card boot partition. On first RPi boot, this script automatically installs and configures everything — no keyboard or monitor needed.
-
-**Two modes:**
-
-| Mode | Use when |
-|---|---|
-| **RPi OS Lite** | Fresh Raspberry Pi OS Lite image — installs Companion + network manager |
-| **CompanionPi (Bitfocus)** | Official CompanionPi image — Companion already installed, only injects network config |
+Generates a downloadable ZIP bundle that injects CompanionPi network setup onto a freshly flashed SD card. No internet needed on the Raspberry Pi during first boot.
 
 ---
 
-## Quick start
+## Architecture
 
-```bash
-pip install -r requirements.txt
-python3 imager.py
+```
+NAS (Docker)                     Mac                         SD card / RPi
+┌─────────────────────┐          ┌──────────────┐            ┌───────────────┐
+│ companionpi-wifi-   │  bundle  │  inject.sh   │  copies    │  firstrun.sh  │
+│ injector (Flask)    │─────────▶│  (bash)      │───────────▶│  cmdline.txt  │
+│ :7070               │  ZIP     │              │            │  companionpi- │
+│                     │          └──────────────┘            │  wifi/        │
+│ caches companionpi- │                                      └───────────────┘
+│ wifi repo locally   │
+└─────────────────────┘
 ```
 
-Browser opens at `http://localhost:7070`.
+The injector caches the [companionpi-wifi](https://codeberg.org/jellec/companionpi-wifi) repo locally and bundles it into a ZIP together with `firstrun.sh`. The Mac only needs `inject.sh` — no Python, no dependencies.
 
 ---
 
-## Steps
+## Quick start (NAS)
 
-1. Flash **RPi OS Lite (64-bit)** or **CompanionPi** image using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Run `python3 imager.py`
-3. Select the mounted boot partition
-4. Configure hostname, Wi-Fi, user credentials, AP settings
-5. **(RPi OS only)** Optionally bundle a Companion `.deb` / `.tar.gz` for offline install
-6. Click **Inject CompanionPi**
-7. Eject SD card safely, insert into RPi, power on
-8. Open `http://<hostname>.local` in your browser — watch the install progress live
+```bash
+docker compose up -d
+```
 
-First boot takes **~5–10 minutes** depending on internet speed and packages.
+Open `http://<NAS-IP>:7070` in your browser.
 
 ---
 
-## Offline Companion install
+## Usage
 
-Companion v4 is distributed via [user.bitfocus.io/download](https://user.bitfocus.io/download) (free account required).
-
-1. Download the **Linux ARM64 `.deb`** or **`.tar.gz`**
-2. In the imager — Step 3 — click **Choose .deb file** and import it
-3. The file is bundled onto the SD card; the RPi installs it without internet
+1. Flash **CompanionPi** image using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+2. Open `http://<NAS-IP>:7070`
+3. Click **Fetch/update repo** (caches companionpi-wifi on the NAS)
+4. Configure hostname, Wi-Fi, credentials, AP settings
+5. Click **Download bundle** → saves `companionpi-bundle.zip`
+6. Run `inject.sh` on your Mac:
+   ```bash
+   bash inject.sh /Volumes/bootfs companionpi-bundle.zip
+   ```
+7. Eject SD card, insert into RPi, power on
+8. First boot runs `firstrun.sh` — configures everything automatically (~2–5 min), then reboots
 
 ---
 
-## What gets injected
+## inject.sh
+
+Mac-side helper script. Unpacks the bundle onto the mounted SD card boot partition and patches `cmdline.txt`.
+
+```bash
+# Usage
+bash inject.sh <boot-partition-path> <bundle.zip>
+
+# Example
+bash inject.sh /Volumes/bootfs ~/Downloads/companionpi-bundle.zip
+```
+
+Requirements: `bash`, `python3` (pre-installed on macOS), `unzip`.
+
+---
+
+## Bundle contents
 
 | File | Purpose |
 |---|---|
-| `firstrun.sh` | Runs on first boot — installs packages, clones repo, configures network |
-| `cmdline.txt` | Modified to trigger `firstrun.sh` via systemd |
-| `userconf.txt` | Creates the user account (Bookworm requirement) |
-| `ssh` | Enables SSH server on first boot |
-| `companionpi-info.txt` | Records version, settings — read back on next inject |
-| `packages/*.deb` | Bundled packages for offline install (optional) |
+| `firstrun.sh` | Runs on first boot — configures hostname, Wi-Fi, Companion |
+| `cmdline.txt.patch` | `systemd.run` entry to trigger firstrun |
+| `userconf.txt` | Creates the `companion` user account |
+| `ssh` | Enables SSH on first boot |
+| `companionpi-wifi/` | Full wifi manager repo — installed offline from SD card |
+| `meta.json` | Bundle metadata (version, timestamp, cmdline_add) |
+| `companionpi-info.txt` | Human-readable summary of injected settings |
 
 ---
 
-## Companion status page
+## Development
 
-While the RPi is installing, open `http://<hostname>.local` (port 80) in your browser. The page refreshes every 3 seconds and shows the full install log. A green **"Open Companion →"** button appears when installation is complete.
+```bash
+pip install -r requirements.txt
+python imager.py
+# → http://localhost:7070
+```
 
 ---
 
@@ -80,10 +96,12 @@ While the RPi is installing, open `http://<hostname>.local` (port 80) in your br
 - `flask>=3.0`
 - `passlib>=1.7`
 - `certifi>=2024.0`
+- `git` (for cloning companionpi-wifi repo)
 
 ---
 
 ## Related
 
-- [companionpi-wifi](https://codeberg.org/jellec/companionpi-wifi) — the network manager that runs on the RPi
+- [companionpi-wifi](https://codeberg.org/jellec/companionpi-wifi) — the network manager installed on the RPi
+- [infra-stacks/stack_companionpi](https://git.fjhome.eu/jellec/infra-stacks) — NAS deploy stack
 - [Bitfocus Companion](https://bitfocus.io/companion) — the software this is all built around

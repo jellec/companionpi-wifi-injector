@@ -1,5 +1,5 @@
 """
-CompanionPi Imager — inject firstrun.sh + wifi repo into a flashed CompanionPi SD card.
+CompanionPi WiFi Injector — NAS webapp that generates SD card bundle ZIPs.
 Run:  python imager.py  →  http://localhost:7070
 """
 
