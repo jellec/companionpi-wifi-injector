@@ -217,11 +217,21 @@ def inject_to_partition(boot_path: str, hostname: str, wifi_country: str,
     (boot / "userconf.txt").write_text(f"{username}:{pw_hash}\n")
     (boot / "ssh").touch()
 
+    if not (WIFI_REPO_CACHE / "install.sh").exists():
+        raise ValueError(
+            "Wifi repo is leeg of corrupt — klik Re-fetch in stap 1 en probeer opnieuw.")
+
     wifi_dst = boot / "companionpi-wifi"
     if wifi_dst.exists():
-        shutil.rmtree(wifi_dst)
+        shutil.rmtree(str(wifi_dst))
+    # copy_function=shutil.copy: skip metadata/xattrs (FAT32 doesn't support them)
     shutil.copytree(str(WIFI_REPO_CACHE), str(wifi_dst),
-                    ignore=shutil.ignore_patterns(".git", ".fetch_time", "*.tmp"))
+                    ignore=shutil.ignore_patterns(".git", ".fetch_time", "*.tmp"),
+                    copy_function=shutil.copy)
+
+    if not (wifi_dst / "install.sh").exists():
+        raise RuntimeError(
+            "companionpi-wifi kopie mislukt — installeer de app en probeer opnieuw.")
 
     cmdline = (boot / "cmdline.txt").read_text().strip()
     for pat in [r"\s+systemd\.run=\S+", r"\s+systemd\.run_success_action=\S+",
@@ -247,8 +257,8 @@ def inject_to_partition(boot_path: str, hostname: str, wifi_country: str,
 
 def build_bundle(hostname: str, wifi_country: str, username: str, password: str,
                  ap_ssid: str, ap_password: str, install_cups: bool) -> io.BytesIO:
-    if not WIFI_REPO_CACHE.exists():
-        raise ValueError("Wifi repo nog niet opgehaald — klik eerst Fetch.")
+    if not (WIFI_REPO_CACHE / "install.sh").exists():
+        raise ValueError("Wifi repo ontbreekt of is corrupt — klik Re-fetch in stap 1.")
 
     repo_st = wifi_repo_status()
     pw_hash = hash_password(password)
