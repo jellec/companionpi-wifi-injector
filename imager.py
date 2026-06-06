@@ -23,7 +23,8 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION   = "0.3.3"
+IMAGER_VERSION   = "0.3.4"
+AGENT_PORT       = 7072
 
 SCRIPT_DIR      = Path(__file__).parent
 TEMPLATE_FILE   = SCRIPT_DIR / "firstrun-template.sh"
@@ -310,6 +311,7 @@ def index():
     return render_template("index.html",
                            repo_url_default=REPO_URL_DEFAULT,
                            imager_version=IMAGER_VERSION,
+                           agent_port=AGENT_PORT,
                            repo=repo, repo_fetch=repo_fetch)
 
 
@@ -349,6 +351,25 @@ def api_bundle():
     except Exception as e:
         flash(str(e), "error")
         return redirect(url_for("index"))
+
+
+@app.route("/api/bundle-b64", methods=["POST"])
+def api_bundle_b64():
+    """Returns bundle as base64 JSON — used by companion-agent for local SD inject."""
+    hostname     = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
+    wifi_country = re.sub(r"[^A-Z]", "", request.form.get("wifi_country", "BE").upper())[:2]
+    password     = request.form.get("password", "companion123")
+    ap_ssid      = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
+    ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
+    install_cups = request.form.get("install_cups") == "on"
+    try:
+        import base64 as _b64
+        buf = build_bundle(hostname, wifi_country, "companion", password,
+                           ap_ssid, ap_password, install_cups)
+        b64 = _b64.b64encode(buf.read()).decode()
+        return json.dumps({"bundle_base64": b64, "hostname": hostname}), 200, {"Content-Type": "application/json"}
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
 
 
 @app.route("/api/partitions")
