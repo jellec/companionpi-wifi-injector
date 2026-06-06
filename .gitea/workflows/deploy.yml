@@ -23,16 +23,16 @@ jobs:
 
       - name: Kopieer naar stack directory
         run: |
-          mkdir -p /opt/docker/stack_companionpi/companionpi-wifi-injector
-          find /opt/docker/stack_companionpi/companionpi-wifi-injector/ -mindepth 1 \
+          mkdir -p /opt/stacks/stack_companionpi/companionpi-wifi-injector
+          find /opt/stacks/stack_companionpi/companionpi-wifi-injector/ -mindepth 1 \
             -not -path '*/wifi-repo-cache*' \
             -delete 2>/dev/null || true
           cp -r /tmp/injector-deploy/. \
-               /opt/docker/stack_companionpi/companionpi-wifi-injector/
+               /opt/stacks/stack_companionpi/companionpi-wifi-injector/
           echo "✅ Injector broncode gekopieerd."
 
       - name: Docker Compose — injector rebuilden
         run: |
-          cd /opt/docker/stack_companionpi
+          cd /opt/stacks/stack_companionpi
           docker compose up -d --build injector
           echo "✅ Injector herbouwd en herstart."
