@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,53 +19,26 @@
     repoStaticOk: {{ 'true' if repo.static_ok else 'false' }},
     repoUrl: '{{ repo_url_default }}',
 
-    /* ── agent (companion-agent.py op Mac/Win) ── */
-    agentPort: {{ agent_port }},
-    agentFound: false,
-    agentChecking: true,
-
-    /* ── SD kaart (via agent) ── */
+    /* ── SD kaart ── */
     partitions: [],
     selectedPartition: '',
     partitionsLoading: false,
 
-    /* ── inject state ── */
+    /* ── inject ── */
     injectRunning: false,
     injectDone: false,
     injectError: '',
     injectHostname: '',
 
     get repoReady() { return this.repoCached && this.repoStaticOk; },
-    get agentUrl() { return 'http://localhost:' + this.agentPort; },
     get repoAgeLabel() {
       if (this.repoAge === null) return '';
       const m = Math.floor(this.repoAge / 60);
-      if (m < 1) return 'just now';
-      if (m < 60) return m + 'm ago';
+      if (m < 1) return 'zojuist';
+      if (m < 60) return m + 'm geleden';
       const h = Math.floor(m / 60);
-      if (h < 24) return h + 'h ago';
-      return Math.floor(h / 24) + 'd ago';
-    },
-
-    async checkAgent() {
-      this.agentChecking = true;
-      try {
-        const r = await fetch(this.agentUrl + '/api/ping', { signal: AbortSignal.timeout(1500) });
-        this.agentFound = r.ok;
-      } catch { this.agentFound = false; }
-      this.agentChecking = false;
-      if (this.agentFound) this.loadPartitions();
-    },
-
-    async loadPartitions() {
-      this.partitionsLoading = true;
-      try {
-        const d = await fetch(this.agentUrl + '/api/partitions', { signal: AbortSignal.timeout(2000) }).then(r => r.json());
-        this.partitions = d;
-        if (d.length === 1) this.selectedPartition = d[0].path;
-        else if (!d.find(p => p.path === this.selectedPartition)) this.selectedPartition = '';
-      } catch { this.partitions = []; }
-      this.partitionsLoading = false;
+      if (h < 24) return h + 'u geleden';
+      return Math.floor(h / 24) + 'd geleden';
     },
 
     async fetchRepo() {
@@ -75,7 +48,7 @@
         body: JSON.stringify({repo_url: this.repoUrl})
       }).catch(e => { this.repoError = String(e); this.repoFetching = false; return null; });
       if (!r) return;
-      if (!r.ok) { const d = await r.json(); this.repoError = d.error || 'Failed'; this.repoFetching = false; return; }
+      if (!r.ok) { const d = await r.json(); this.repoError = d.error || 'Mislukt'; this.repoFetching = false; return; }
       this.pollRepo();
     },
 
@@ -93,23 +66,25 @@
       }, 1000);
     },
 
+    async loadPartitions() {
+      this.partitionsLoading = true;
+      try {
+        const d = await fetch('/api/partitions', { signal: AbortSignal.timeout(3000) }).then(r => r.json());
+        this.partitions = d;
+        if (d.length === 1) this.selectedPartition = d[0].path;
+        else if (!d.find(p => p.path === this.selectedPartition)) this.selectedPartition = '';
+      } catch { this.partitions = []; }
+      this.partitionsLoading = false;
+    },
+
     async doInject(formEl) {
       this.injectRunning = true; this.injectDone = false; this.injectError = '';
       try {
-        /* 1. Haal bundle op van NAS als bytes */
-        const formData = new FormData(formEl);
-        const bundleResp = await fetch('/api/bundle-b64', { method: 'POST', body: formData });
-        const bundleJson = await bundleResp.json();
-        if (bundleJson.error) throw new Error(bundleJson.error);
-
-        /* 2. Stuur naar lokale agent */
-        const agentData = new FormData(formEl);
-        agentData.set('bundle_base64', bundleJson.bundle_base64);
-        agentData.set('boot_path', this.selectedPartition);
-        const agentResp = await fetch(this.agentUrl + '/api/inject', { method: 'POST', body: agentData });
-        const result = await agentResp.json();
+        const fd = new FormData(formEl);
+        fd.set('boot_path', this.selectedPartition);
+        const r = await fetch('/api/inject', { method: 'POST', body: fd });
+        const result = await r.json();
         if (!result.ok) throw new Error(result.error || 'Inject mislukt');
-
         this.injectDone = true;
         this.injectHostname = result.hostname || '';
       } catch(e) {
@@ -120,7 +95,7 @@
   }"
   x-init="
     {% if repo_fetch.running %}repoFetching = true; repoStep = '{{ repo_fetch.step }}'; pollRepo();{% endif %}
-    checkAgent();
+    loadPartitions();
   "
 >
 
@@ -133,65 +108,48 @@
       </div>
       <div class="flex items-center justify-center gap-2">
         <h1 class="text-2xl font-bold">CompanionPi Injector</h1>
-        <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">v{{ imager_version }}</span>
+        <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">v{{ app_version }}</span>
       </div>
-      <p class="text-sm text-slate-400">Configure en injecteer CompanionPi op een SD kaart</p>
-    </div>
-
-    <!-- Flash messages -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}{% for category, message in messages %}
-    <div class="rounded-lg px-4 py-3 text-sm
-      {% if category == 'error' %}bg-red-900 text-red-200 ring-1 ring-red-700
-      {% else %}bg-slate-700 text-slate-300{% endif %}">{{ message }}</div>
-    {% endfor %}{% endif %}
-    {% endwith %}
-
-    <!-- Step 1: Fetch repo -->
-    <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-3">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">1</span>
-          <h2 class="font-semibold">Fetch wifi repo</h2>
-        </div>
-        <div x-show="repoReady && !repoFetching" class="text-xs font-medium bg-emerald-900/50 text-emerald-300 ring-1 ring-emerald-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
-          Cached · <span x-text="repoAgeLabel + ' · ' + repoSize + ' MB'"></span>
-        </div>
-        <div x-show="!repoReady && !repoFetching" class="text-xs font-medium bg-amber-900/50 text-amber-300 ring-1 ring-amber-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span>Niet gecached
-        </div>
-        <div x-show="repoFetching" x-cloak class="text-xs font-medium bg-blue-900/50 text-blue-300 ring-1 ring-blue-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block animate-pulse"></span>
-          <span x-text="repoStep"></span>
-        </div>
-      </div>
-      <p class="text-xs text-slate-400">Clonet companionpi-wifi + static assets lokaal. Gebundeld op de SD kaart — RPi installeert zonder internet.</p>
-      <div x-show="repoError" x-cloak class="text-xs text-red-400 bg-red-900/30 rounded px-3 py-2" x-text="repoError"></div>
-      <div class="flex gap-2 items-center">
-        <button type="button" @click="fetchRepo()" :disabled="repoFetching"
-                :class="repoFetching ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-600 cursor-pointer'"
-                class="px-3 py-1.5 text-xs bg-slate-700 rounded-lg text-slate-300 font-medium transition-colors">
-          <span x-show="!repoFetching" x-text="repoCached ? '↺ Re-fetch' : '↓ Fetch repo'"></span>
-          <span x-show="repoFetching" x-cloak>Fetching...</span>
-        </button>
-        <details class="text-xs text-slate-500 flex-1">
-          <summary class="cursor-pointer hover:text-slate-400 select-none">Custom repo URL</summary>
-          <div class="mt-2">
-            <input type="text" x-model="repoUrl" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
-          </div>
-        </details>
-      </div>
+      <p class="text-sm text-slate-400">Flash, configureer en injecteer CompanionPi op een SD kaart</p>
     </div>
 
     <form id="mainForm" class="space-y-5">
 
-      <div class="rounded-lg bg-blue-900/20 ring-1 ring-blue-700/30 px-4 py-3 text-xs text-blue-300 space-y-1">
-        <div class="flex items-center gap-2">
-          <span class="font-semibold text-blue-100 text-sm">CompanionPi</span>
-          <span class="bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 px-1.5 py-0.5 rounded-full font-medium">by Bitfocus</span>
+      <!-- Step 1: Fetch repo -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">1</span>
+            <h2 class="font-semibold">Fetch wifi repo</h2>
+          </div>
+          <div x-show="repoReady && !repoFetching" class="text-xs font-medium bg-emerald-900/50 text-emerald-300 ring-1 ring-emerald-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+            Cached · <span x-text="repoAgeLabel + ' · ' + repoSize + ' MB'"></span>
+          </div>
+          <div x-show="!repoReady && !repoFetching" class="text-xs font-medium bg-amber-900/50 text-amber-300 ring-1 ring-amber-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span>Niet gecached
+          </div>
+          <div x-show="repoFetching" x-cloak class="text-xs font-medium bg-blue-900/50 text-blue-300 ring-1 ring-blue-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block animate-pulse"></span>
+            <span x-text="repoStep"></span>
+          </div>
         </div>
-        <div>Flash de CompanionPi ARM64 image via Raspberry Pi Imager, sluit de SD kaart aan en klik Inject.</div>
+        <p class="text-xs text-slate-400">Clonet companionpi-wifi lokaal. Eenmalig — daarna werkt injecteren offline.</p>
+        <div x-show="repoError" x-cloak class="text-xs text-red-400 bg-red-900/30 rounded px-3 py-2" x-text="repoError"></div>
+        <div class="flex gap-2 items-center">
+          <button type="button" @click="fetchRepo()" :disabled="repoFetching"
+                  :class="repoFetching ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-600 cursor-pointer'"
+                  class="px-3 py-1.5 text-xs bg-slate-700 rounded-lg text-slate-300 font-medium transition-colors">
+            <span x-show="!repoFetching" x-text="repoCached ? '↺ Re-fetch' : '↓ Fetch repo'"></span>
+            <span x-show="repoFetching" x-cloak>Fetching...</span>
+          </button>
+          <details class="text-xs text-slate-500 flex-1">
+            <summary class="cursor-pointer hover:text-slate-400 select-none">Custom repo URL</summary>
+            <div class="mt-2">
+              <input type="text" x-model="repoUrl" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </details>
+        </div>
       </div>
 
       <!-- Step 2: Configure -->
@@ -200,6 +158,15 @@
           <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">2</span>
           <h2 class="font-semibold">Configure</h2>
         </div>
+
+        <div class="rounded-lg bg-blue-900/20 ring-1 ring-blue-700/30 px-4 py-3 text-xs text-blue-300 space-y-1">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-blue-100 text-sm">CompanionPi</span>
+            <span class="bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 px-1.5 py-0.5 rounded-full font-medium">by Bitfocus</span>
+          </div>
+          <div>Flash de CompanionPi ARM64 image via Raspberry Pi Imager, sluit de SD kaart aan en klik Inject.</div>
+        </div>
+
         <div class="grid grid-cols-2 gap-4">
           <div class="col-span-2">
             <label class="block text-sm font-medium text-slate-300 mb-1">Hostname</label>
@@ -217,7 +184,7 @@
           <div>
             <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
             <input type="text" value="companion" readonly class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-500 font-mono cursor-not-allowed">
-            <div class="text-xs text-slate-600 mt-1">Fixed — CompanionPi gebruikt <span class="font-mono">companion</span></div>
+            <div class="text-xs text-slate-600 mt-1">Vast — CompanionPi gebruikt <span class="font-mono">companion</span></div>
           </div>
           <div class="col-span-2">
             <label class="block text-sm font-medium text-slate-300 mb-1">Password (SSH)</label>
@@ -254,140 +221,104 @@
         </label>
       </div>
 
-      <!-- Step 4: SD kaart selectie + inject -->
+      <!-- Step 4: SD kaart + Inject -->
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">4</span>
             <h2 class="font-semibold">Inject op SD kaart</h2>
           </div>
-          <!-- Agent status badge -->
-          <div x-show="!agentChecking && agentFound" x-cloak class="text-xs font-medium bg-emerald-900/50 text-emerald-300 ring-1 ring-emerald-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>Agent actief
-          </div>
-          <div x-show="!agentChecking && !agentFound" x-cloak class="text-xs font-medium bg-slate-700 text-slate-400 ring-1 ring-slate-600 px-2 py-0.5 rounded-full flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-500 inline-block"></span>Agent offline
-          </div>
-          <div x-show="agentChecking" x-cloak class="text-xs text-slate-500 animate-pulse">Zoeken...</div>
-        </div>
-
-        <!-- Agent niet gevonden -->
-        <div x-show="!agentChecking && !agentFound" x-cloak class="rounded-lg bg-slate-900 border border-slate-700 px-4 py-4 space-y-3">
-          <div class="text-sm text-slate-300 font-medium">Start de lokale agent op je Mac of Windows</div>
-          <div class="text-xs text-slate-400">De agent schrijft de bundle naar je SD kaart. Eenmalig downloaden, daarna altijd beschikbaar.</div>
-
-          <!-- Download buttons -->
-          <div class="flex flex-wrap gap-2">
-            <a href="https://github.com/jellec/companionpi-wifi-injector/releases/tag/latest-agent"
-               target="_blank" rel="noopener"
-               class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-700 hover:bg-blue-600 rounded-lg text-white font-medium transition-colors">
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-              </svg>
-              Download agent (Mac / Windows)
-            </a>
-          </div>
-
-          <div class="text-xs text-slate-500 space-y-0.5">
-            <div><span class="text-slate-400">macOS:</span> pak <span class="font-mono">companion-agent-macos.zip</span> uit → rechtermuisknop → <span class="font-medium text-slate-300">Open</span></div>
-            <div><span class="text-slate-400">Windows:</span> dubbelklik <span class="font-mono">companion-agent.exe</span></div>
-          </div>
-
-          <button type="button" @click="checkAgent()" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 font-medium transition-colors cursor-pointer">
-            ↺ Opnieuw controleren
+          <button type="button" @click="loadPartitions()"
+                  class="text-xs text-slate-500 hover:text-white px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 transition-colors">
+            ↺ Vernieuwen
           </button>
         </div>
 
-        <!-- Agent gevonden: SD kaart selectie -->
-        <div x-show="!agentChecking && agentFound" x-cloak class="space-y-3">
-
-          <!-- SD kaart lijst -->
-          <div class="flex items-center justify-between">
-            <div class="text-xs text-slate-400">Selecteer de SD kaart</div>
-            <button type="button" @click="loadPartitions()" class="text-xs text-slate-500 hover:text-white px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 transition-colors">↺ Vernieuwen</button>
-          </div>
-
-          <div x-show="partitionsLoading" x-cloak class="text-xs text-slate-400 animate-pulse">Zoeken naar SD kaarten...</div>
-
-          <div x-show="!partitionsLoading && partitions.length === 0" x-cloak
-               class="rounded-lg bg-slate-900 border border-slate-700 px-4 py-3 text-xs text-slate-400 text-center">
-            Geen SD kaart gevonden — sluit hem aan en klik Vernieuwen.
-          </div>
-
-          <div x-show="!partitionsLoading && partitions.length > 0" x-cloak class="space-y-2">
-            <template x-for="p in partitions" :key="p.path">
-              <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
-                     :class="selectedPartition === p.path ? 'border-blue-500 bg-blue-900/20' : 'border-slate-600 hover:border-slate-500 bg-slate-900'">
-                <input type="radio" name="_partition_radio" :value="p.path" x-model="selectedPartition" class="accent-blue-500">
-                <div>
-                  <div class="text-sm font-medium text-white" x-text="p.name"></div>
-                  <div class="text-xs text-slate-400 font-mono" x-text="p.path"></div>
-                </div>
-              </label>
-            </template>
-          </div>
-
-          <!-- Inject resultaat -->
-          <div x-show="injectDone" x-cloak class="rounded-lg bg-emerald-900/40 ring-1 ring-emerald-700/50 px-4 py-3 space-y-1">
-            <div class="text-sm font-semibold text-emerald-300">✓ Geïnjecteerd!</div>
-            <div class="text-xs text-emerald-400">Verwijder de SD kaart veilig, stop hem in de RPi en zet hem aan.
-              <span x-show="injectHostname"> Open <span class="font-mono" x-text="'http://' + injectHostname + '.local'"></span> na ~1 min.</span>
-            </div>
-          </div>
-          <div x-show="injectError" x-cloak class="rounded-lg bg-red-900/40 ring-1 ring-red-700/50 px-4 py-3 text-xs text-red-300" x-text="injectError"></div>
-
-          <!-- Inject knop -->
-          <button type="button"
-                  @click="injectDone = false; injectError = ''; doInject(document.getElementById('mainForm'))"
-                  :disabled="!repoReady || !selectedPartition || injectRunning"
-                  :class="(repoReady && selectedPartition && !injectRunning) ? 'bg-blue-600 hover:bg-blue-500 cursor-pointer' : 'bg-slate-700 cursor-not-allowed opacity-50'"
-                  class="w-full flex items-center justify-center gap-2 px-5 py-3 text-white text-sm font-semibold rounded-lg transition-colors">
-            <span x-show="!injectRunning" class="flex items-center gap-2">
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-              </svg>
-              Injecteer op SD kaart
-            </span>
-            <span x-show="injectRunning" x-cloak class="flex items-center gap-2">
-              <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-              </svg>
-              Bezig — even geduld...
-            </span>
-          </button>
-          <div x-show="!repoReady" x-cloak class="text-xs text-amber-400 text-center">⚠ Fetch eerst de wifi repo (stap 1).</div>
+        <!-- Geen SD kaart gevonden -->
+        <div x-show="!partitionsLoading && partitions.length === 0" x-cloak
+             class="rounded-lg bg-slate-900 border border-slate-700 px-4 py-3 text-xs text-slate-400 text-center">
+          Geen SD kaart gevonden — sluit hem aan en klik Vernieuwen.
         </div>
-      </div>
 
-      <!-- Step 5: Download bundle (fallback, zonder agent) -->
-      <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-5 space-y-3">
-        <div class="flex items-center gap-2">
-          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-600 text-xs font-bold shrink-0">5</span>
-          <h2 class="font-semibold text-slate-400">Download bundle <span class="text-xs font-normal text-slate-500">(alternatief, voor inject.sh)</span></h2>
+        <div x-show="partitionsLoading" x-cloak class="text-xs text-slate-400 animate-pulse">Zoeken naar SD kaarten...</div>
+
+        <!-- SD kaart lijst -->
+        <div x-show="!partitionsLoading && partitions.length > 0" x-cloak class="space-y-2">
+          <template x-for="p in partitions" :key="p.path">
+            <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+                   :class="selectedPartition === p.path ? 'border-blue-500 bg-blue-900/20' : 'border-slate-600 hover:border-slate-500 bg-slate-900'">
+              <input type="radio" name="_partition_radio" :value="p.path" x-model="selectedPartition" class="accent-blue-500">
+              <div>
+                <div class="text-sm font-medium text-white" x-text="p.name"></div>
+                <div class="text-xs text-slate-400 font-mono" x-text="p.path"></div>
+              </div>
+            </label>
+          </template>
         </div>
-        <div class="text-xs text-slate-500">ZIP downloaden en handmatig injecteren via <span class="font-mono bg-slate-800 px-1 rounded">bash inject.sh bundle.zip</span></div>
-        <button type="submit" form="bundleForm"
-                :disabled="!repoReady"
-                :class="repoReady ? 'bg-slate-600 hover:bg-slate-500 cursor-pointer' : 'bg-slate-700 cursor-not-allowed opacity-50'"
-                class="w-full flex items-center justify-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors">
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-          </svg>
-          Download bundle
+
+        <!-- Resultaat -->
+        <div x-show="injectDone" x-cloak class="rounded-lg bg-emerald-900/40 ring-1 ring-emerald-700/50 px-4 py-3 space-y-1">
+          <div class="text-sm font-semibold text-emerald-300">✓ Geïnjecteerd!</div>
+          <div class="text-xs text-emerald-400">Verwijder de SD kaart veilig, stop hem in de RPi en zet hem aan.
+            <span x-show="injectHostname"> Open <span class="font-mono" x-text="'http://' + injectHostname + '.local'"></span> na ~2 min.</span>
+          </div>
+        </div>
+        <div x-show="injectError" x-cloak class="rounded-lg bg-red-900/40 ring-1 ring-red-700/50 px-4 py-3 text-xs text-red-300" x-text="injectError"></div>
+
+        <!-- Inject knop -->
+        <button type="button"
+                @click="injectDone = false; injectError = ''; doInject(document.getElementById('mainForm'))"
+                :disabled="!repoReady || !selectedPartition || injectRunning"
+                :class="(repoReady && selectedPartition && !injectRunning) ? 'bg-blue-600 hover:bg-blue-500 cursor-pointer' : 'bg-slate-700 cursor-not-allowed opacity-50'"
+                class="w-full flex items-center justify-center gap-2 px-5 py-3 text-white text-sm font-semibold rounded-lg transition-colors">
+          <span x-show="!injectRunning" class="flex items-center gap-2">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            Injecteer op SD kaart
+          </span>
+          <span x-show="injectRunning" x-cloak class="flex items-center gap-2">
+            <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            Bezig — even geduld...
+          </span>
         </button>
+        <div x-show="!repoReady" x-cloak class="text-xs text-amber-400 text-center">⚠ Fetch eerst de wifi repo (stap 1).</div>
       </div>
+
+      <!-- Download bundle (fallback) -->
+      <details class="bg-slate-800/50 border border-slate-700/50 rounded-xl">
+        <summary class="px-5 py-3 cursor-pointer text-sm text-slate-400 hover:text-slate-300 select-none list-none flex items-center gap-2">
+          <svg class="h-3.5 w-3.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+          </svg>
+          Download bundle <span class="text-xs text-slate-600 ml-1">(alternatief — handmatig injecteren via inject.sh)</span>
+        </summary>
+        <div class="px-5 pb-4 space-y-3">
+          <div class="text-xs text-slate-500">ZIP downloaden en handmatig schrijven via <span class="font-mono bg-slate-800 px-1 rounded">bash inject.sh bundle.zip</span></div>
+          <button type="submit" form="bundleForm"
+                  :disabled="!repoReady"
+                  :class="repoReady ? 'bg-slate-600 hover:bg-slate-500 cursor-pointer' : 'bg-slate-700 cursor-not-allowed opacity-50'"
+                  class="flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            Download bundle
+          </button>
+        </div>
+      </details>
 
     </form>
 
-    <!-- hidden bundle download form -->
+    <!-- hidden bundle form -->
     <form id="bundleForm" method="post" action="{{ url_for('api_bundle') }}" style="display:none">
       <script>
         document.getElementById('bundleForm').addEventListener('submit', function() {
           const src = document.getElementById('mainForm');
           ['hostname','wifi_country','password','ap_ssid','ap_password','install_cups'].forEach(n => {
-            const el = src.elements[n];
-            if (!el) return;
+            const el = src.elements[n]; if (!el) return;
             const inp = document.createElement('input');
             inp.type = 'hidden'; inp.name = n;
             inp.value = el.type === 'checkbox' ? (el.checked ? 'on' : '') : el.value;

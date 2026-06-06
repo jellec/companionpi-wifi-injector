@@ -1,11 +1,14 @@
-name: Build companion-agent
+name: Build companion-app
 
 on:
   push:
     branches: [main]
     paths:
-      - 'companion-agent.py'
-      - 'agent-requirements.txt'
+      - 'companion-app.py'
+      - 'templates/**'
+      - 'static/**'
+      - 'firstrun-template.sh'
+      - 'requirements.txt'
       - '.github/workflows/build-agent.yml'
   workflow_dispatch:
 
@@ -18,15 +21,23 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install pyinstaller -r agent-requirements.txt
+        run: pip install pyinstaller -r requirements.txt
       - name: Build .app bundle
-        run: pyinstaller --windowed --onedir --name companion-agent companion-agent.py
+        run: |
+          pyinstaller \
+            --windowed --onedir \
+            --name companion-app \
+            --add-data "templates:templates" \
+            --add-data "static:static" \
+            --add-data "firstrun-template.sh:." \
+            --hidden-import passlib.handlers.sha2_crypt \
+            companion-app.py
       - name: Zip .app
-        run: cd dist && zip -r companion-agent-macos.zip companion-agent.app
+        run: cd dist && zip -r companion-app-macos.zip companion-app.app
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: dist/companion-agent-macos.zip
+          path: dist/companion-app-macos.zip
 
   build-windows:
     runs-on: windows-latest
@@ -36,13 +47,21 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install pyinstaller -r agent-requirements.txt
+        run: pip install pyinstaller -r requirements.txt
       - name: Build .exe
-        run: pyinstaller --noconsole --onefile --name companion-agent companion-agent.py
+        run: |
+          pyinstaller `
+            --noconsole --onefile `
+            --name companion-app `
+            --add-data "templates;templates" `
+            --add-data "static;static" `
+            --add-data "firstrun-template.sh;." `
+            --hidden-import passlib.handlers.sha2_crypt `
+            companion-app.py
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: dist/companion-agent.exe
+          path: dist/companion-app.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -52,13 +71,21 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install pyinstaller -r agent-requirements.txt
+        run: pip install pyinstaller -r requirements.txt
       - name: Build Linux binary
-        run: pyinstaller --onefile --name companion-agent companion-agent.py
+        run: |
+          pyinstaller \
+            --onefile \
+            --name companion-app \
+            --add-data "templates:templates" \
+            --add-data "static:static" \
+            --add-data "firstrun-template.sh:." \
+            --hidden-import passlib.handlers.sha2_crypt \
+            companion-app.py
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: dist/companion-agent
+          path: dist/companion-app
 
   release:
     needs: [build-macos, build-windows, build-linux]
@@ -72,13 +99,13 @@ jobs:
           merge-multiple: true
 
       - name: Rename Linux binary
-        run: mv artifacts/companion-agent artifacts/companion-agent-linux
+        run: mv artifacts/companion-app artifacts/companion-app-linux
 
       - name: Create/update latest release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest-agent
-          name: companion-agent (latest)
+          tag_name: latest
+          name: CompanionPi Injector (latest)
           prerelease: true
           make_latest: false
           body: |
@@ -86,12 +113,12 @@ jobs:
 
             | Bestand | Platform | Gebruik |
             |---|---|---|
-            | `companion-agent-macos.zip` | macOS | Pak uit, rechtermuisknop → **Open** (eenmalig), laat draaien |
-            | `companion-agent.exe` | Windows | Dubbelklik om te starten, laat draaien |
-            | `companion-agent-linux` | Linux x86_64 | `chmod +x companion-agent-linux && ./companion-agent-linux` |
+            | `companion-app-macos.zip` | macOS | Pak uit → rechtermuisknop → **Open** (eenmalig voor Gatekeeper) |
+            | `companion-app.exe` | Windows | Dubbelklik om te starten |
+            | `companion-app-linux` | Linux x86_64 | `chmod +x companion-app-linux && ./companion-app-linux` |
 
-            De agent luistert op **http://localhost:7072** en wordt automatisch herkend door de NAS-webapp.
+            De app opent automatisch de browser op **http://localhost:7070**.
           files: |
-            artifacts/companion-agent-macos.zip
-            artifacts/companion-agent.exe
-            artifacts/companion-agent-linux
+            artifacts/companion-app-macos.zip
+            artifacts/companion-app.exe
+            artifacts/companion-app-linux
