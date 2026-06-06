@@ -10,16 +10,11 @@ jobs:
     runs-on: nas-companionpi
 
     steps:
-      - name: Download repo van Gitea
+      - name: Clone injector repo van Gitea
         run: |
           rm -rf /tmp/injector-deploy
-          mkdir -p /tmp/injector-deploy
-          wget -q --header="Authorization: token ${{ secrets.GITEA_TOKEN }}" \
-               "http://192.168.10.11:3001/jellec/companionpi-wifi-injector/archive/main.tar.gz" \
-               -O /tmp/injector-deploy/repo.tar.gz
-          tar xzf /tmp/injector-deploy/repo.tar.gz \
-               --strip-components=1 \
-               -C /tmp/injector-deploy
+          git clone --depth=1 http://192.168.10.11:3001/jellec/companionpi-wifi-injector.git \
+            /tmp/injector-deploy
 
       - name: Kopieer naar stack directory
         run: |
@@ -29,6 +24,7 @@ jobs:
             -delete 2>/dev/null || true
           cp -r /tmp/injector-deploy/. \
                /opt/stacks/stack_companionpi/companionpi-wifi-injector/
+          rm -rf /tmp/injector-deploy
           echo "✅ Injector broncode gekopieerd."
 
       - name: Docker Compose — injector rebuilden
