@@ -23,7 +23,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION   = "0.3.2"
+IMAGER_VERSION   = "0.3.3"
 
 SCRIPT_DIR      = Path(__file__).parent
 TEMPLATE_FILE   = SCRIPT_DIR / "firstrun-template.sh"
@@ -154,6 +154,67 @@ def hash_password(password: str) -> str:
     except Exception:
         pass
     raise RuntimeError("Cannot hash password — install passlib: pip install passlib")
+
+
+# --------------------------------------------------------------------------- #
+#  SD card detection & direct inject
+# --------------------------------------------------------------------------- #
+
+def find_boot_partitions() -> list:
+    """Return mounted RPi boot partitions (have cmdline.txt)."""
+    candidates = []
+    for root in [Path("/Volumes"), Path("/media"), Path("/mnt")]:
+        if not root.exists():
+            continue
+        try:
+            for vol in root.iterdir():
+                if (vol / "cmdline.txt").exists():
+                    candidates.append({"path": str(vol), "name": vol.name})
+        except PermissionError:
+            pass
+    return candidates
+
+
+def inject_to_partition(boot_path: str, hostname: str, wifi_country: str,
+                        username: str, pw_hash: str, ap_ssid: str,
+                        ap_password: str, install_cups: bool):
+    """Write bundle files directly to a mounted boot partition."""
+    boot = Path(boot_path)
+    if not (boot / "cmdline.txt").exists():
+        raise ValueError(f"Not a valid RPi boot partition: {boot_path}")
+    if not WIFI_REPO_CACHE.exists():
+        raise ValueError("Wifi repo not cached — fetch it first.")
+
+    firstrun = _render_firstrun(hostname, wifi_country, username, pw_hash,
+                                ap_ssid, ap_password, install_cups)
+    (boot / "firstrun.sh").write_text(firstrun)
+    (boot / "userconf.txt").write_text(f"{username}:{pw_hash}\n")
+    (boot / "ssh").touch()
+
+    wifi_dst = boot / "companionpi-wifi"
+    if wifi_dst.exists():
+        shutil.rmtree(wifi_dst)
+    shutil.copytree(str(WIFI_REPO_CACHE), str(wifi_dst),
+                    ignore=shutil.ignore_patterns(".git", ".fetch_time", "*.tmp"))
+
+    cmdline = (boot / "cmdline.txt").read_text().strip()
+    for pat in [r"\s+systemd\.run=\S+", r"\s+systemd\.run_success_action=\S+",
+                r"\s+systemd\.run_failure_action=\S+", r"\s+systemd\.unit=\S+"]:
+        cmdline = re.sub(pat, "", cmdline)
+    (boot / "cmdline.txt").write_text(cmdline.strip() + CMDLINE_ADD + "\n")
+
+    info = (
+        f"CompanionPi Injector\n====================\n"
+        f"Injector version : {IMAGER_VERSION}\n"
+        f"Injected         : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"\nConfiguration\n-------------\n"
+        f"Hostname     : {hostname}\n"
+        f"Username     : {username}\n"
+        f"WiFi country : {wifi_country}\n"
+        f"AP SSID      : {ap_ssid}\n"
+        f"AP password  : {ap_password}\n"
+    )
+    (boot / "companionpi-info.txt").write_text(info)
 
 
 # --------------------------------------------------------------------------- #
@@ -288,6 +349,31 @@ def api_bundle():
     except Exception as e:
         flash(str(e), "error")
         return redirect(url_for("index"))
+
+
+@app.route("/api/partitions")
+def api_partitions():
+    return json.dumps(find_boot_partitions()), 200, {"Content-Type": "application/json"}
+
+
+@app.route("/api/inject", methods=["POST"])
+def api_inject():
+    hostname     = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
+    wifi_country = re.sub(r"[^A-Z]", "", request.form.get("wifi_country", "BE").upper())[:2]
+    password     = request.form.get("password", "companion123")
+    ap_ssid      = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
+    ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
+    install_cups = request.form.get("install_cups") == "on"
+    boot_path    = request.form.get("boot_path", "").strip()
+    if not boot_path:
+        return json.dumps({"error": "No SD card selected"}), 400, {"Content-Type": "application/json"}
+    try:
+        pw_hash = hash_password(password)
+        inject_to_partition(boot_path, hostname, wifi_country, "companion",
+                            pw_hash, ap_ssid, ap_password, install_cups)
+        return json.dumps({"ok": True, "boot_path": boot_path}), 200, {"Content-Type": "application/json"}
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
 
 
 # --------------------------------------------------------------------------- #

@@ -20,6 +20,14 @@
     repoStaticOk: {{ 'true' if repo.static_ok else 'false' }},
     repoUrl: '{{ repo_url_default }}',
 
+    partitions: [],
+    selectedPartition: '',
+    partitionsLoading: false,
+
+    injectRunning: false,
+    injectDone: false,
+    injectError: '',
+
     get repoReady() { return this.repoCached && this.repoStaticOk; },
     get repoAgeLabel() {
       if (this.repoAge === null) return '';
@@ -54,9 +62,34 @@
           this.repoSize = d.size_mb; this.repoAge = d.age_s;
         }
       }, 1000);
+    },
+
+    async loadPartitions() {
+      this.partitionsLoading = true;
+      const d = await fetch('/api/partitions').then(r => r.json()).catch(() => []);
+      this.partitions = d;
+      if (d.length === 1) this.selectedPartition = d[0].path;
+      else if (!d.find(p => p.path === this.selectedPartition)) this.selectedPartition = '';
+      this.partitionsLoading = false;
+    },
+
+    async doInject(formEl) {
+      this.injectRunning = true; this.injectDone = false; this.injectError = '';
+      const data = new FormData(formEl);
+      data.set('boot_path', this.selectedPartition);
+      const r = await fetch('/api/inject', { method: 'POST', body: data })
+        .catch(e => { this.injectError = String(e); this.injectRunning = false; return null; });
+      if (!r) return;
+      const d = await r.json();
+      this.injectRunning = false;
+      if (d.ok) { this.injectDone = true; }
+      else { this.injectError = d.error || 'Inject failed'; }
     }
   }"
-  x-init="{% if repo_fetch.running %}repoFetching = true; repoStep = '{{ repo_fetch.step }}'; pollRepo();{% endif %}"
+  x-init="
+    {% if repo_fetch.running %}repoFetching = true; repoStep = '{{ repo_fetch.step }}'; pollRepo();{% endif %}
+    loadPartitions();
+  "
 >
 
   <div class="max-w-xl mx-auto px-4 py-12 space-y-6">
@@ -70,7 +103,7 @@
         <h1 class="text-2xl font-bold">CompanionPi Injector</h1>
         <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">v{{ imager_version }}</span>
       </div>
-      <p class="text-sm text-slate-400">Configure, download bundle, run <span class="font-mono text-slate-300">inject.sh</span> on your Mac — no Python needed locally</p>
+      <p class="text-sm text-slate-400">Configure en injecteer CompanionPi direct op een SD kaart</p>
     </div>
 
     <!-- Flash messages -->
@@ -106,7 +139,7 @@
         </div>
       </div>
 
-      <p class="text-xs text-slate-400">Clones the wifi repo + static assets locally. Bundled onto the SD card — RPi installs without internet.</p>
+      <p class="text-xs text-slate-400">Clonet de wifi repo + static assets lokaal. Wordt gebundeld op de SD kaart — RPi installeert zonder internet.</p>
       <div x-show="repoError" x-cloak class="text-xs text-red-400 bg-red-900/30 rounded px-3 py-2" x-text="repoError"></div>
 
       <div class="flex gap-2 items-center">
@@ -126,7 +159,7 @@
       </div>
     </div>
 
-    <form method="post" action="{{ url_for('api_bundle') }}" class="space-y-5">
+    <form id="mainForm" class="space-y-5">
 
       <!-- CompanionPi info -->
       <div class="rounded-lg bg-blue-900/20 ring-1 ring-blue-700/30 px-4 py-3 text-xs text-blue-300 space-y-1.5">
@@ -134,7 +167,7 @@
           <span class="font-semibold text-blue-100 text-sm">CompanionPi</span>
           <span class="bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 px-1.5 py-0.5 rounded-full font-medium">by Bitfocus</span>
         </div>
-        <div>Flash CompanionPi ARM64 image with Raspberry Pi Imager, then apply the bundle with <span class="font-mono bg-blue-900/40 px-1 rounded">inject.sh</span>.</div>
+        <div>Flash de CompanionPi ARM64 image via Raspberry Pi Imager. Sluit de SD kaart aan — de injector schrijft er direct op.</div>
       </div>
 
       <!-- Step 2: Configure -->
@@ -163,10 +196,10 @@
             <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
             <input type="text" value="companion" readonly
                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-500 font-mono cursor-not-allowed">
-            <div class="text-xs text-slate-600 mt-1">Fixed — CompanionPi uses the <span class="font-mono">companion</span> user</div>
+            <div class="text-xs text-slate-600 mt-1">Fixed — CompanionPi gebruikt <span class="font-mono">companion</span></div>
           </div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-slate-300 mb-1">Password (for SSH login)</label>
+            <label class="block text-sm font-medium text-slate-300 mb-1">Password (voor SSH login)</label>
             <input type="text" name="password" value="companion123"
                    class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
@@ -199,32 +232,112 @@
           <input type="checkbox" name="install_cups" class="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-blue-500">
           <div>
             <div class="text-sm text-slate-300">Install print server (CUPS)</div>
-            <div class="text-xs text-slate-500">Requires internet on first boot · ~5 min extra</div>
+            <div class="text-xs text-slate-500">Vereist internet bij eerste boot · ~5 min extra</div>
           </div>
         </label>
       </div>
 
-      <!-- Step 4: Download bundle -->
+      <!-- Step 4: SD card -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">4</span>
+            <h2 class="font-semibold">SD kaart</h2>
+          </div>
+          <button type="button" @click="loadPartitions()"
+                  class="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 transition-colors">
+            ↺ Vernieuwen
+          </button>
+        </div>
+
+        <!-- Loading -->
+        <div x-show="partitionsLoading" x-cloak class="text-xs text-slate-400 animate-pulse">Zoeken naar SD kaarten...</div>
+
+        <!-- No partitions found -->
+        <div x-show="!partitionsLoading && partitions.length === 0" x-cloak
+             class="rounded-lg bg-slate-900 border border-slate-700 px-4 py-4 text-center space-y-2">
+          <div class="text-slate-400 text-sm">Geen SD kaart gevonden</div>
+          <div class="text-xs text-slate-500">Sluit de SD kaart aan en klik <span class="font-medium text-slate-300">Vernieuwen</span>, of gebruik <span class="font-mono bg-slate-800 px-1 rounded">inject.sh</span> handmatig.</div>
+        </div>
+
+        <!-- Partition list -->
+        <div x-show="!partitionsLoading && partitions.length > 0" x-cloak class="space-y-2">
+          <template x-for="p in partitions" :key="p.path">
+            <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+                   :class="selectedPartition === p.path
+                     ? 'border-blue-500 bg-blue-900/20'
+                     : 'border-slate-600 hover:border-slate-500 bg-slate-900'">
+              <input type="radio" name="_partition_radio" :value="p.path"
+                     x-model="selectedPartition" class="accent-blue-500">
+              <div>
+                <div class="text-sm font-medium text-white" x-text="p.name"></div>
+                <div class="text-xs text-slate-400 font-mono" x-text="p.path"></div>
+              </div>
+            </label>
+          </template>
+        </div>
+
+        <!-- Inject button -->
+        <div x-show="!partitionsLoading" x-cloak>
+          <!-- Success -->
+          <div x-show="injectDone" x-cloak
+               class="rounded-lg bg-emerald-900/40 ring-1 ring-emerald-700/50 px-4 py-3 text-sm text-emerald-300 space-y-1">
+            <div class="font-semibold">✓ Geïnjecteerd!</div>
+            <div class="text-xs">Verwijder de SD kaart veilig, stop hem in de RPi en zet hem aan. De eerste boot duurt ~1 minuut.</div>
+          </div>
+          <!-- Error -->
+          <div x-show="injectError" x-cloak
+               class="rounded-lg bg-red-900/40 ring-1 ring-red-700/50 px-4 py-3 text-xs text-red-300" x-text="injectError"></div>
+
+          <button type="button"
+                  @click="injectDone = false; injectError = ''; doInject($el.closest('form'))"
+                  :disabled="!repoReady || !selectedPartition || injectRunning"
+                  :class="(repoReady && selectedPartition && !injectRunning)
+                    ? 'bg-blue-600 hover:bg-blue-500 cursor-pointer'
+                    : 'bg-slate-700 cursor-not-allowed opacity-50'"
+                  class="w-full flex items-center justify-center gap-2 px-5 py-2.5 text-white text-sm font-semibold rounded-lg transition-colors mt-3">
+            <span x-show="!injectRunning">
+              <svg class="h-4 w-4 inline -mt-0.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+              </svg>
+              Injecteer op SD kaart
+            </span>
+            <span x-show="injectRunning" x-cloak class="flex items-center gap-2">
+              <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              Bezig met injecteren...
+            </span>
+          </button>
+
+          <div x-show="!repoReady && selectedPartition" x-cloak
+               class="text-xs text-amber-400 mt-2 text-center">⚠ Fetch eerst de wifi repo (stap 1).</div>
+          <div x-show="repoReady && !selectedPartition && partitions.length > 0" x-cloak
+               class="text-xs text-slate-500 mt-2 text-center">Selecteer een SD kaart hierboven.</div>
+        </div>
+      </div>
+
+      <!-- Step 5: Download bundle (fallback) -->
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <div class="flex items-center gap-2">
-          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">4</span>
-          <h2 class="font-semibold">Download bundle</h2>
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-600 text-xs font-bold shrink-0">5</span>
+          <h2 class="font-semibold text-slate-400">Download bundle <span class="text-xs font-normal text-slate-500">(alternatief voor inject.sh)</span></h2>
         </div>
 
         <div class="rounded-lg bg-slate-900 px-4 py-3 text-xs text-slate-400 space-y-1.5">
-          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">↓</span> ZIP with firstrun.sh, userconf.txt, ssh, companionpi-wifi repo</div>
-          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">→</span> Mac: <span class="font-mono bg-slate-800 px-1 rounded">bash inject.sh /Volumes/bootfs bundle.zip</span></div>
-          <div class="flex gap-2"><span class="text-emerald-400 shrink-0">→</span> Eject, insert into RPi, power on — boots in ~1 min</div>
+          <div class="flex gap-2"><span class="text-slate-500 shrink-0">↓</span> ZIP met firstrun.sh, userconf.txt, ssh, companionpi-wifi repo</div>
+          <div class="flex gap-2"><span class="text-slate-500 shrink-0">→</span> <span class="font-mono bg-slate-800 px-1 rounded">bash inject.sh ~/Downloads/bundle.zip</span></div>
         </div>
 
         <div x-show="!repoReady" x-cloak
              class="rounded-lg bg-amber-900/30 ring-1 ring-amber-700/50 px-4 py-3 text-xs text-amber-300">
-          ⚠ Fetch the wifi repo first (Step 1).
+          ⚠ Fetch eerst de wifi repo (stap 1).
         </div>
 
-        <button type="submit"
+        <button type="submit" form="bundleForm"
                 :disabled="!repoReady"
-                :class="repoReady ? 'bg-blue-600 hover:bg-blue-500 cursor-pointer' : 'bg-slate-700 cursor-not-allowed opacity-50'"
+                :class="repoReady ? 'bg-slate-600 hover:bg-slate-500 cursor-pointer' : 'bg-slate-700 cursor-not-allowed opacity-50'"
                 class="w-full flex items-center justify-center gap-2 px-5 py-2.5 text-white text-sm font-medium rounded-lg transition-colors">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -235,11 +348,22 @@
 
     </form>
 
-    <!-- inject.sh usage hint -->
-    <div class="rounded-lg bg-slate-800/50 border border-slate-700/50 px-4 py-3 text-xs text-slate-500 space-y-1">
-      <div class="font-medium text-slate-400">Apply bundle on Mac (one-time setup, <span class="font-mono">inject.sh</span> lives in the repo):</div>
-      <div class="font-mono bg-slate-900 rounded px-3 py-2 text-slate-300 select-all">bash inject.sh /Volumes/bootfs ~/Downloads/companionpi-*.zip</div>
-    </div>
+    <!-- Hidden bundle form (POST to api_bundle) -->
+    <form id="bundleForm" method="post" action="{{ url_for('api_bundle') }}" style="display:none">
+      <script>
+        document.getElementById('bundleForm').addEventListener('submit', function() {
+          const src = document.getElementById('mainForm');
+          ['hostname','wifi_country','password','ap_ssid','ap_password','install_cups'].forEach(n => {
+            const el = src.elements[n];
+            if (!el) return;
+            const inp = document.createElement('input');
+            inp.type = 'hidden'; inp.name = n;
+            inp.value = el.type === 'checkbox' ? (el.checked ? 'on' : '') : el.value;
+            this.appendChild(inp);
+          });
+        });
+      </script>
+    </form>
 
   </div>
 </body>
