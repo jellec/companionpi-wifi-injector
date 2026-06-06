@@ -55,12 +55,14 @@ Open `http://<NAS-IP>:7070` in your browser.
 Mac-side helper script. Unpacks the bundle onto the mounted SD card boot partition and patches `cmdline.txt`.
 
 ```bash
-# Usage
-bash inject.sh <boot-partition-path> <bundle.zip>
+# Auto-detect SD card (finds any mounted RPi boot partition)
+bash inject.sh ~/Downloads/companionpi-bundle.zip
 
-# Example
-bash inject.sh /Volumes/bootfs ~/Downloads/companionpi-bundle.zip
+# Explicit path (if auto-detect picks the wrong one)
+bash inject.sh ~/Downloads/companionpi-bundle.zip /Volumes/bootfs
 ```
+
+Auto-detect werkt op macOS via `/Volumes/*/cmdline.txt`. Als meerdere partities gevonden worden, toont het script een keuzemenu.
 
 Requirements: `bash`, `python3` (pre-installed on macOS), `unzip`.
 
