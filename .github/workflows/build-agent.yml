@@ -93,6 +93,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: ver
+        run: |
+          VERSION=$(grep '^APP_VERSION' companion-app.py | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -105,11 +113,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: CompanionPi Injector (latest)
+          name: CompanionPi Injector v${{ steps.ver.outputs.version }}
           prerelease: true
           make_latest: false
           body: |
-            Automatisch gebouwde binaries — bijgewerkt bij elke push naar `main`.
+            **v${{ steps.ver.outputs.version }}** — automatisch gebouwd bij elke push naar `main`.
 
             | Bestand | Platform | Gebruik |
             |---|---|---|
