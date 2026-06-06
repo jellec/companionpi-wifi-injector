@@ -274,14 +274,25 @@
         <!-- Agent niet gevonden -->
         <div x-show="!agentChecking && !agentFound" x-cloak class="rounded-lg bg-slate-900 border border-slate-700 px-4 py-4 space-y-3">
           <div class="text-sm text-slate-300 font-medium">Start de lokale agent op je Mac of Windows</div>
-          <div class="text-xs text-slate-400 space-y-1">
-            <div>De agent schrijft de bundle naar je SD kaart. Eenmalig opstarten, daarna altijd beschikbaar.</div>
+          <div class="text-xs text-slate-400">De agent schrijft de bundle naar je SD kaart. Eenmalig downloaden, daarna altijd beschikbaar.</div>
+
+          <!-- Download buttons -->
+          <div class="flex flex-wrap gap-2">
+            <a href="https://github.com/jellec/companionpi-wifi-injector/releases/tag/latest-agent"
+               target="_blank" rel="noopener"
+               class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-700 hover:bg-blue-600 rounded-lg text-white font-medium transition-colors">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Download agent (Mac / Windows)
+            </a>
           </div>
-          <div class="bg-slate-800 rounded-lg px-3 py-2 font-mono text-xs text-slate-300 space-y-1">
-            <div class="text-slate-500"># Mac / Windows (Python vereist)</div>
-            <div>python companion-agent.py</div>
-            <div class="text-slate-500 mt-1"># of dubbelklik companion-agent.exe / .app (binnenkort)</div>
+
+          <div class="text-xs text-slate-500 space-y-0.5">
+            <div><span class="text-slate-400">macOS:</span> pak <span class="font-mono">companion-agent-macos.zip</span> uit → rechtermuisknop → <span class="font-medium text-slate-300">Open</span></div>
+            <div><span class="text-slate-400">Windows:</span> dubbelklik <span class="font-mono">companion-agent.exe</span></div>
           </div>
+
           <button type="button" @click="checkAgent()" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 font-medium transition-colors cursor-pointer">
             ↺ Opnieuw controleren
           </button>
