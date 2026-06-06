@@ -23,7 +23,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION   = "0.3.1"
+IMAGER_VERSION   = "0.3.2"
 
 SCRIPT_DIR      = Path(__file__).parent
 TEMPLATE_FILE   = SCRIPT_DIR / "firstrun-template.sh"
@@ -97,14 +97,23 @@ def _do_fetch_repo(repo_url: str):
                 check=True, capture_output=True, timeout=30,
             )
         else:
-            if WIFI_REPO_CACHE.exists():
-                shutil.rmtree(WIFI_REPO_CACHE)
+            # Clone to a sibling temp dir, then move contents into the cache dir.
+            # Cannot rmtree the cache dir itself — it may be a bind-mount point.
+            tmp = WIFI_REPO_CACHE.parent / ".wifi-repo-cache.tmp"
+            if tmp.exists():
+                shutil.rmtree(tmp)
             with _repo_lock:
                 _repo["step"] = "Cloning repo..."
             subprocess.run(
-                ["git", "clone", "--depth=1", repo_url, str(WIFI_REPO_CACHE)],
+                ["git", "clone", "--depth=1", repo_url, str(tmp)],
                 check=True, capture_output=True, timeout=120,
             )
+            WIFI_REPO_CACHE.mkdir(parents=True, exist_ok=True)
+            for item in WIFI_REPO_CACHE.iterdir():
+                shutil.rmtree(item) if item.is_dir() else item.unlink()
+            for item in tmp.iterdir():
+                shutil.move(str(item), str(WIFI_REPO_CACHE / item.name))
+            shutil.rmtree(tmp)
 
         static_dir = WIFI_REPO_CACHE / "webapp" / "static"
         static_dir.mkdir(parents=True, exist_ok=True)
