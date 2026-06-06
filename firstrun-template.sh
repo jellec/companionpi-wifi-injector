@@ -1,19 +1,17 @@
 #!/bin/bash
-# CompanionPi firstrun.sh — runs on first RPi boot, injected by companion-imager
+# CompanionPi firstrun.sh — injected by companionpi-wifi-injector, runs on first RPi boot
 
 LOG=/boot/firmware/firstrun.log
 exec 1>"$LOG" 2>&1
 
 HOSTNAME="{{HOSTNAME}}"
 WIFI_COUNTRY="{{WIFI_COUNTRY}}"
-REPO_URL="{{REPO_URL}}"
 USERNAME="{{USERNAME}}"
 PASSWORD="{{PASSWORD}}"
 AP_SSID="{{AP_SSID}}"
 AP_PASSWORD="{{AP_PASSWORD}}"
 INSTALL_CUPS="{{INSTALL_CUPS}}"
-IMAGE_TYPE="{{IMAGE_TYPE}}"    # companionpi | rpios
-PACKAGES_DIR="/boot/firmware/packages"
+IMAGE_TYPE="{{IMAGE_TYPE}}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
 
@@ -31,13 +29,13 @@ log "Enabling SSH..."
 systemctl enable ssh
 systemctl start ssh
 
-# Set password for the companion user (CompanionPi image creates user without password)
+# Set password for companion user
 if [ -n "$PASSWORD" ] && [ "$IMAGE_TYPE" = "companionpi" ]; then
     log "Setting password for user: $USERNAME"
     echo "$USERNAME:$PASSWORD" | chpasswd 2>/dev/null || true
 fi
 
-# Write status web server to a temp file and run it
+# Start install status web server on port 80
 log "Starting install status page on port 80..."
 cat > /tmp/cpw_status.py << 'PYEOF'
 import http.server, html, os
@@ -140,72 +138,18 @@ log "Status page PID $STATUS_PID — open http://{{HOSTNAME}}.local in your brow
 log "Cleaning cmdline.txt..."
 sed -i 's| systemd\.run=[^ ]*||g' /boot/firmware/cmdline.txt
 sed -i 's| systemd\.run_success_action=[^ ]*||g' /boot/firmware/cmdline.txt
+sed -i 's| systemd\.run_failure_action=[^ ]*||g' /boot/firmware/cmdline.txt
 sed -i 's| systemd\.unit=[^ ]*||g' /boot/firmware/cmdline.txt
 
-# Fix DNS: systemd-resolved stub (127.0.0.53) is not ready at early boot — ensure real nameserver
-if grep -qF "127.0.0.53" /etc/resolv.conf 2>/dev/null || ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
-    log "Fixing resolv.conf — adding 8.8.8.8 (systemd stub not ready yet)"
-    echo "nameserver 8.8.8.8" > /etc/resolv.conf
-    echo "nameserver 1.1.1.1" >> /etc/resolv.conf
-fi
-
-# Wait for a default route first (routing not ready immediately at systemd.run time)
-log "Waiting for default route..."
-for i in $(seq 1 60); do
-    if ip route show default 2>/dev/null | grep -q via; then
-        log "Default route present (try $i)"
-        break
-    fi
-    [ $i -eq 60 ] && log "  WARNING: no default route after 120s, continuing anyway..."
-    sleep 2
-done
-
-# Wait for internet connectivity — use IP (1.1.1.1:443) to avoid DNS dependency
-log "Waiting for internet..."
-NETWORK_OK=0
-for i in $(seq 1 60); do
-    if bash -c 'echo > /dev/tcp/1.1.1.1/443' 2>/dev/null; then
-        log "Internet reachable (try $i)"
-        NETWORK_OK=1
-        break
-    fi
-    log "  No internet yet, waiting... ($i/60)"
-    sleep 2
-done
-
-if [ $NETWORK_OK -eq 0 ]; then
-    log "ERROR: Internet not available after 120s — cannot install packages."
-    touch /tmp/cpw_install_failed
-    sleep 300
-    kill $STATUS_PID 2>/dev/null || true
-    rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
-    exit 0
-fi
-
-# Update apt (retry up to 3 times)
-for attempt in 1 2 3; do
-    log "Updating package lists (attempt $attempt/3)..."
-    apt-get update -qq && break
-    [ $attempt -lt 3 ] && { log "  Retrying in 15s..."; sleep 15; }
-done
-
-# Install dependencies — CompanionPi image already has most packages
-if [ "$IMAGE_TYPE" = "companionpi" ]; then
-    log "CompanionPi image — installing only network management packages..."
-    PKGS="network-manager dnsmasq rfkill wireless-tools git curl"
+# Copy companionpi-wifi from SD card — bundled by imager, no internet needed
+WIFI_SRC="/boot/firmware/companionpi-wifi"
+if [ -d "$WIFI_SRC" ]; then
+    log "Copying companionpi-wifi from SD card..."
+    rm -rf /opt/companionpi-wifi
+    cp -r "$WIFI_SRC" /opt/companionpi-wifi
+    rm -rf "$WIFI_SRC"
 else
-    PKGS="git python3 python3-pip python3-flask network-manager dnsmasq curl rfkill wireless-tools"
-fi
-
-for attempt in 1 2 3; do
-    log "Installing packages — attempt $attempt/3..."
-    apt-get install -y -qq --fix-missing $PKGS && break
-    [ $attempt -lt 3 ] && { log "  apt failed, retrying in 30s..."; sleep 30; }
-done
-
-# Verify git is available
-if ! command -v git >/dev/null 2>&1; then
-    log "ERROR: git not installed after apt — aborting."
+    log "ERROR: companionpi-wifi not on SD card — re-inject with companionpi-wifi-injector."
     touch /tmp/cpw_install_failed
     sleep 300
     kill $STATUS_PID 2>/dev/null || true
@@ -213,11 +157,17 @@ if ! command -v git >/dev/null 2>&1; then
     exit 0
 fi
 
-# rpi-clone
-log "Installing rpi-clone..."
-curl -sL https://raw.githubusercontent.com/billw2/rpi-clone/master/rpi-clone \
-    -o /usr/local/bin/rpi-clone
-chmod +x /usr/local/bin/rpi-clone
+# Install packages best-effort (most already present in CompanionPi image)
+log "Installing packages..."
+apt-get install -y -qq --fix-missing network-manager dnsmasq rfkill wireless-tools curl 2>&1 || \
+    log "WARNING: apt-get failed — continuing with pre-installed packages"
+
+# rpi-clone (best-effort — needs internet)
+log "Installing rpi-clone (best-effort)..."
+curl -sL --max-time 20 https://raw.githubusercontent.com/billw2/rpi-clone/master/rpi-clone \
+    -o /usr/local/bin/rpi-clone 2>/dev/null \
+    && chmod +x /usr/local/bin/rpi-clone \
+    || log "WARNING: rpi-clone not installed (no internet)"
 
 # NetworkManager — disable built-in DNS stub
 cat > /etc/NetworkManager/conf.d/companionpi.conf << 'EOF'
@@ -226,86 +176,18 @@ dns=none
 EOF
 systemctl reload NetworkManager 2>/dev/null || true
 
-# Clone companionpi-wifi
-log "Cloning companionpi-wifi from $REPO_URL ..."
-rm -rf /opt/companionpi-wifi
-git clone --depth 1 "$REPO_URL" /opt/companionpi-wifi
-
-if [ ! -f /opt/companionpi-wifi/install.sh ]; then
-    log "ERROR: git clone failed — /opt/companionpi-wifi/install.sh not found."
-    touch /tmp/cpw_install_failed
-    sleep 300
-    kill $STATUS_PID 2>/dev/null || true
-    rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
-    exit 0
-fi
-
-# Install
+# Run install.sh from the bundled repo
 log "Running install.sh..."
-bash /opt/companionpi-wifi/install.sh
+cd /opt/companionpi-wifi
+bash install.sh
 
-# Install Bitfocus Companion — skip if already present (CompanionPi image)
+# Companion already installed on CompanionPi image — ensure it's enabled
 if [ "$IMAGE_TYPE" = "companionpi" ]; then
-    log "CompanionPi image — Companion already installed, skipping."
+    log "CompanionPi image — ensuring Companion service is enabled..."
     systemctl enable --now companion 2>/dev/null || true
-else
-    COMPANION_DEB=$(ls "$PACKAGES_DIR"/companion*.deb 2>/dev/null | head -1)
-    COMPANION_TGZ=$(ls "$PACKAGES_DIR"/companion*.tar.gz "$PACKAGES_DIR"/companion*.tgz 2>/dev/null | head -1)
-
-    if [ -n "$COMPANION_DEB" ]; then
-        log "Installing Companion from SD card (.deb): $(basename $COMPANION_DEB)"
-        apt-get install -y -qq "$COMPANION_DEB" 2>&1 || log "WARNING: Companion .deb install failed"
-        systemctl enable --now companion 2>/dev/null || true
-        log "Companion installed (offline .deb)."
-    elif [ -n "$COMPANION_TGZ" ]; then
-        log "Installing Companion from SD card (.tar.gz): $(basename $COMPANION_TGZ)"
-        rm -rf /opt/companion
-        mkdir -p /opt/companion
-
-        # Extract — try strip-components=1 first (handles top-level folder), then bare
-        tar -xzf "$COMPANION_TGZ" -C /opt/companion --strip-components=1 2>/dev/null || \
-            tar -xzf "$COMPANION_TGZ" -C /opt/companion
-
-        # Find the companion binary (could be ./companion, ./linux-unpacked/companion, etc.)
-        COMPANION_BIN=$(find /opt/companion -maxdepth 3 -type f -name "companion" ! -name "*.js" ! -name "*.map" 2>/dev/null | head -1)
-        if [ -z "$COMPANION_BIN" ]; then
-            # Fallback: any executable named companion-*
-            COMPANION_BIN=$(find /opt/companion -maxdepth 3 -type f -name "companion*" -perm /111 2>/dev/null | grep -v '\.js$\|\.map$\|\.asar$' | head -1)
-        fi
-
-        if [ -z "$COMPANION_BIN" ]; then
-            log "ERROR: Could not find companion binary in archive"
-        else
-            chmod +x "$COMPANION_BIN"
-            log "Found Companion binary: $COMPANION_BIN"
-            cat > /etc/systemd/system/companion.service << SVCEOF
-[Unit]
-Description=Bitfocus Companion
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=$COMPANION_BIN
-WorkingDirectory=$(dirname $COMPANION_BIN)
-Restart=always
-RestartSec=5
-User=root
-Environment=HOME=/root
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-            systemctl daemon-reload
-            systemctl enable --now companion 2>/dev/null || true
-            log "Companion installed (offline .tar.gz)."
-        fi
-    else
-        log "WARNING: No Companion package on SD card. Install via web UI after boot."
-        log "  Download from: https://user.bitfocus.io/download (Linux ARM64 .deb or .tar.gz)"
-    fi
 fi
 
-# Install print server (CUPS) if requested
+# CUPS print server (optional)
 if [ "$INSTALL_CUPS" = "true" ]; then
     log "Installing CUPS print server..."
     apt-get install -y -qq cups cups-bsd printer-driver-gutenprint 2>&1 | tail -3
@@ -314,7 +196,7 @@ if [ "$INSTALL_CUPS" = "true" ]; then
     log "CUPS installed."
 fi
 
-# Write WiFi and AP settings to settings.env
+# Apply WiFi settings
 log "Applying Wi-Fi settings (country=$WIFI_COUNTRY AP=$AP_SSID)"
 sed -i "s/^WIFI_COUNTRY=.*/WIFI_COUNTRY=$WIFI_COUNTRY/" \
     /etc/companionpi-wifi/settings.env
@@ -322,7 +204,6 @@ sed -i "s/^WLAN0_AP_SSID=.*/WLAN0_AP_SSID=$AP_SSID/" \
     /etc/companionpi-wifi/settings.env
 sed -i "s/^WLAN0_AP_PASSWORD=.*/WLAN0_AP_PASSWORD=$AP_PASSWORD/" \
     /etc/companionpi-wifi/settings.env
-# Apply country code and unblock WiFi at OS level
 raspi-config nonint do_wifi_country "$WIFI_COUNTRY" 2>/dev/null || \
     iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
 rfkill unblock wifi 2>/dev/null || true
@@ -330,7 +211,8 @@ rfkill unblock wifi 2>/dev/null || true
 # Done
 log "=== First boot complete ==="
 touch /tmp/cpw_install_done
-log "Open http://{{HOSTNAME}}.local:8000 in your browser"
+log "Companion:     http://{{HOSTNAME}}.local:8000"
+log "Network config: http://{{HOSTNAME}}.local"
 log "Status page stays up for 5 minutes, then rebooting..."
 sleep 300
 
