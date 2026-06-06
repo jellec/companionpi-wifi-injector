@@ -24,7 +24,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
-IMAGER_VERSION = "0.2.8"
+IMAGER_VERSION = "0.2.9"
 
 SCRIPT_DIR   = Path(__file__).parent
 TEMPLATE_FILE = SCRIPT_DIR / "firstrun-template.sh"
@@ -284,6 +284,7 @@ def inject(boot_path: str, hostname: str, wifi_country: str, repo_url: str,
     cmdline += (
         " systemd.run=/boot/firmware/firstrun.sh"
         " systemd.run_success_action=reboot"
+        " systemd.run_failure_action=reboot"
         " systemd.unit=kernel-command-line.target"
     )
     _write_unix(boot / "cmdline.txt", cmdline.strip() + "\n")

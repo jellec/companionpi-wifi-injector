@@ -61,7 +61,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if done:
             status_html = f'''<div style="margin:24px;background:#052e16;border:1px solid #166534;border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px">
               <div style="color:#4ade80;font-weight:600">&#10003; Install complete!</div>
-              <a href="http://{HOSTNAME}.local:8001" target="_blank"
+              <a href="http://{HOSTNAME}.local:8000" target="_blank"
                  style="background:#2563eb;color:white;padding:8px 18px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600">
                 Open Companion &#8594;
               </a>
@@ -142,10 +142,11 @@ sed -i 's| systemd\.run=[^ ]*||g' /boot/firmware/cmdline.txt
 sed -i 's| systemd\.run_success_action=[^ ]*||g' /boot/firmware/cmdline.txt
 sed -i 's| systemd\.unit=[^ ]*||g' /boot/firmware/cmdline.txt
 
-# Ensure DNS works during early boot (resolv.conf may be empty before systemd-resolved starts)
-if ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
-    log "No nameserver in resolv.conf — adding 8.8.8.8"
-    echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+# Fix DNS: systemd-resolved stub (127.0.0.53) is not ready at early boot — ensure real nameserver
+if grep -qF "127.0.0.53" /etc/resolv.conf 2>/dev/null || ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
+    log "Fixing resolv.conf — adding 8.8.8.8 (systemd stub not ready yet)"
+    echo "nameserver 8.8.8.8" > /etc/resolv.conf
+    echo "nameserver 1.1.1.1" >> /etc/resolv.conf
 fi
 
 # Wait for a default route first (routing not ready immediately at systemd.run time)
@@ -159,11 +160,11 @@ for i in $(seq 1 60); do
     sleep 2
 done
 
-# Wait for internet connectivity (TCP to codeberg.org port 443)
+# Wait for internet connectivity — use IP (1.1.1.1:443) to avoid DNS dependency
 log "Waiting for internet..."
 NETWORK_OK=0
 for i in $(seq 1 60); do
-    if bash -c 'echo > /dev/tcp/codeberg.org/443' 2>/dev/null; then
+    if bash -c 'echo > /dev/tcp/1.1.1.1/443' 2>/dev/null; then
         log "Internet reachable (try $i)"
         NETWORK_OK=1
         break
@@ -178,7 +179,7 @@ if [ $NETWORK_OK -eq 0 ]; then
     sleep 300
     kill $STATUS_PID 2>/dev/null || true
     rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
-    reboot; exit 1
+    exit 0
 fi
 
 # Update apt (retry up to 3 times)
@@ -209,7 +210,7 @@ if ! command -v git >/dev/null 2>&1; then
     sleep 300
     kill $STATUS_PID 2>/dev/null || true
     rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
-    reboot; exit 1
+    exit 0
 fi
 
 # rpi-clone
@@ -236,7 +237,7 @@ if [ ! -f /opt/companionpi-wifi/install.sh ]; then
     sleep 300
     kill $STATUS_PID 2>/dev/null || true
     rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_failed
-    reboot; exit 1
+    exit 0
 fi
 
 # Install
@@ -329,11 +330,11 @@ rfkill unblock wifi 2>/dev/null || true
 # Done
 log "=== First boot complete ==="
 touch /tmp/cpw_install_done
-log "Open http://{{HOSTNAME}}.local:8001 in your browser"
+log "Open http://{{HOSTNAME}}.local:8000 in your browser"
 log "Status page stays up for 5 minutes, then rebooting..."
 sleep 300
 
 kill $STATUS_PID 2>/dev/null || true
 rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_done
 
-reboot
+exit 0
