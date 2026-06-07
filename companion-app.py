@@ -23,9 +23,10 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.1"
+APP_VERSION      = "0.4.2"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
+GITHUB_RELEASE   = "https://api.github.com/repos/jellec/companionpi-wifi-injector/releases/tags/latest"
 
 CMDLINE_ADD = (
     " systemd.run=/boot/firmware/firstrun.sh"
@@ -76,6 +77,173 @@ def _ssl_context():
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
+
+
+# ── Auto-update ───────────────────────────────────────────────────────────────
+
+_update = {
+    "available": False, "latest": "", "status": "idle",
+    "progress": 0, "error": "", "download_path": "",
+    "download_url": "", "asset_name": "",
+}
+_update_lock = threading.Lock()
+
+
+def _version_tuple(v: str) -> tuple:
+    try:
+        return tuple(int(x) for x in re.sub(r"[^0-9.]", "", v).split("."))
+    except ValueError:
+        return (0,)
+
+
+def _find_app_bundle() -> "Path | None":
+    """Return the running .app bundle path on macOS (PyInstaller only)."""
+    if not hasattr(sys, "_MEIPASS") or sys.platform != "darwin":
+        return None
+    for p in Path(sys.executable).parents:
+        if p.suffix == ".app":
+            return p
+    return None
+
+
+def _check_update_async():
+    try:
+        req = urllib.request.Request(
+            GITHUB_RELEASE,
+            headers={"User-Agent": f"companionpi-app/{APP_VERSION}",
+                     "Accept": "application/vnd.github.v3+json"})
+        with urllib.request.urlopen(req, context=_ssl_context(), timeout=8) as r:
+            data = json.loads(r.read())
+
+        m = re.search(r"v?(\d+\.\d+\.\d+)", data.get("name", ""))
+        if not m:
+            return
+        latest = m.group(1)
+        if _version_tuple(latest) <= _version_tuple(APP_VERSION):
+            return
+
+        asset_name = {
+            "darwin": "companion-app-macos.zip",
+            "win32":  "companion-app.exe",
+            "linux":  "companion-app-linux",
+        }.get(sys.platform, "")
+        asset_url = next(
+            (a["browser_download_url"] for a in data.get("assets", [])
+             if a["name"] == asset_name), "")
+
+        with _update_lock:
+            _update.update(available=True, latest=latest, status="available",
+                           download_url=asset_url, asset_name=asset_name)
+    except Exception:
+        pass
+
+
+def _do_install_update():
+    import tempfile
+    with _update_lock:
+        url       = _update["download_url"]
+        asset     = _update["asset_name"]
+
+    if not url:
+        with _update_lock:
+            _update.update(status="error", error="Geen download-URL gevonden")
+        return
+
+    try:
+        with _update_lock:
+            _update.update(status="downloading", progress=0)
+
+        tmp = Path(tempfile.mkdtemp(prefix="cpw-update-"))
+        dl  = tmp / asset
+
+        req = urllib.request.Request(url, headers={"User-Agent": f"companionpi-app/{APP_VERSION}"})
+        with urllib.request.urlopen(req, context=_ssl_context()) as r:
+            total, received = int(r.headers.get("Content-Length", 0) or 0), 0
+            with open(dl, "wb") as f:
+                while True:
+                    chunk = r.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    received += len(chunk)
+                    if total:
+                        with _update_lock:
+                            _update["progress"] = int(received * 100 / total)
+
+        with _update_lock:
+            _update.update(status="installing", progress=100)
+
+        if sys.platform == "darwin":
+            _install_macos(tmp, dl)
+        elif sys.platform == "win32":
+            _install_windows(dl)
+        else:
+            with _update_lock:
+                _update.update(status="ready", download_path=str(dl))
+
+    except Exception as e:
+        with _update_lock:
+            _update.update(status="error", error=str(e))
+
+
+def _install_macos(tmp: Path, zip_path: Path):
+    """Extract new .app, write a replace-and-relaunch script, then exit."""
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(tmp / "extracted")
+
+    new_app = tmp / "extracted" / "companion-app.app"
+    if not new_app.exists():
+        raise RuntimeError("companion-app.app niet gevonden in het zip-archief")
+
+    old_app = _find_app_bundle()
+    if not old_app:
+        # Running from source or unknown location — just show the download
+        with _update_lock:
+            _update.update(status="ready", download_path=str(zip_path))
+        return
+
+    script = tmp / "cpw_update.sh"
+    script.write_text(
+        "#!/bin/bash\n"
+        "sleep 1.5\n"
+        f'rsync -a --delete "{new_app}/" "{old_app}/"\n'
+        f'xattr -cr "{old_app}" 2>/dev/null\n'
+        f'open "{old_app}"\n'
+    )
+    os.chmod(script, 0o755)
+    subprocess.Popen(["/bin/bash", str(script)],
+                     start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    with _update_lock:
+        _update.update(status="relaunching")
+    time.sleep(0.3)
+    sys.exit(0)
+
+
+def _install_windows(exe_path: Path):
+    """Rename running exe, write batch script to swap in new one, relaunch."""
+    current = Path(sys.executable)
+    old_bak = current.with_suffix(".bak.exe")
+
+    import tempfile
+    bat = Path(tempfile.gettempdir()) / "cpw_update.bat"
+    bat.write_text(
+        "@echo off\n"
+        "timeout /t 2 /nobreak >nul\n"
+        f'del /f "{old_bak}" 2>nul\n'
+        f'move /y "{exe_path}" "{current}"\n'
+        f'start "" "{current}"\n'
+    )
+    shutil.move(str(current), str(old_bak))
+
+    with _update_lock:
+        _update.update(status="relaunching")
+    subprocess.Popen(["cmd", "/c", str(bat)],
+                     start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.3)
+    sys.exit(0)
 
 
 # ── Wifi repo cache ───────────────────────────────────────────────────────────
@@ -328,10 +496,13 @@ def index():
     repo = wifi_repo_status()
     with _repo_lock:
         repo_fetch = dict(_repo)
+    with _update_lock:
+        update_info = dict(_update)
     return render_template("index.html",
                            repo_url_default=REPO_URL_DEFAULT,
                            app_version=APP_VERSION,
-                           repo=repo, repo_fetch=repo_fetch)
+                           repo=repo, repo_fetch=repo_fetch,
+                           update_info=update_info)
 
 
 @app.route("/api/repo/fetch", methods=["POST"])
@@ -378,6 +549,23 @@ def api_inject():
         return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
 
 
+@app.route("/api/update/check")
+def api_update_check():
+    with _update_lock:
+        return json.dumps(dict(_update)), 200, {"Content-Type": "application/json"}
+
+
+@app.route("/api/update/install", methods=["POST"])
+def api_update_install():
+    with _update_lock:
+        if _update["status"] not in ("available", "error"):
+            return json.dumps({"error": "Geen update beschikbaar"}), 409, \
+                   {"Content-Type": "application/json"}
+        _update["status"] = "starting"
+    threading.Thread(target=_do_install_update, daemon=True).start()
+    return json.dumps({"status": "started"}), 200, {"Content-Type": "application/json"}
+
+
 @app.route("/api/bundle", methods=["POST"])
 def api_bundle():
     hostname     = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
@@ -413,6 +601,10 @@ if __name__ == "__main__":
 
     threading.Thread(
         target=lambda: (time.sleep(1.2), webbrowser.open(url)),
+        daemon=True
+    ).start()
+    threading.Thread(
+        target=lambda: (time.sleep(4), _check_update_async()),
         daemon=True
     ).start()
 

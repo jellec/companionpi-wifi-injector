@@ -30,6 +30,13 @@
     injectError: '',
     injectHostname: '',
 
+    /* ── update ── */
+    updateAvailable: {{ 'true' if update_info.available else 'false' }},
+    updateLatest: '{{ update_info.latest }}',
+    updateInstalling: false,
+    updateStatus: '',
+    updateProgress: 0,
+
     get repoReady() { return this.repoCached && this.repoStaticOk; },
     get repoAgeLabel() {
       if (this.repoAge === null) return '';
@@ -77,6 +84,30 @@
       this.partitionsLoading = false;
     },
 
+    async checkUpdate() {
+      const d = await fetch('/api/update/check').then(r => r.json()).catch(() => null);
+      if (d && d.available) { this.updateAvailable = true; this.updateLatest = d.latest; }
+    },
+
+    async installUpdate() {
+      this.updateInstalling = true; this.updateStatus = 'Starten...';
+      const r = await fetch('/api/update/install', { method: 'POST' }).catch(() => null);
+      if (!r || !r.ok) { this.updateInstalling = false; this.updateStatus = 'Mislukt'; return; }
+      this._pollUpdate();
+    },
+
+    _pollUpdate() {
+      const t = setInterval(async () => {
+        const d = await fetch('/api/update/check').then(r => r.json()).catch(() => null);
+        if (!d) return;
+        if (d.status === 'downloading')  this.updateStatus = `Downloaden ${d.progress}%`;
+        else if (d.status === 'installing') this.updateStatus = 'Installeren...';
+        else if (d.status === 'relaunching') { this.updateStatus = 'Herstart...'; clearInterval(t); }
+        else if (d.status === 'ready')    { this.updateStatus = 'Klaar'; this.updateInstalling = false; clearInterval(t); }
+        else if (d.status === 'error')    { this.updateStatus = d.error; this.updateInstalling = false; clearInterval(t); }
+      }, 1000);
+    },
+
     async doInject(formEl) {
       this.injectRunning = true; this.injectDone = false; this.injectError = '';
       try {
@@ -96,6 +127,7 @@
   x-init="
     {% if repo_fetch.running %}repoFetching = true; repoStep = '{{ repo_fetch.step }}'; pollRepo();{% endif %}
     loadPartitions();
+    setTimeout(() => checkUpdate(), 6000);
   "
 >
 
@@ -111,6 +143,22 @@
         <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">v{{ app_version }}</span>
       </div>
       <p class="text-sm text-slate-400">Flash, configureer en injecteer CompanionPi op een SD kaart</p>
+    </div>
+
+    <!-- Update banner -->
+    <div x-show="updateAvailable" x-cloak
+         class="bg-blue-950/60 border border-blue-700/50 rounded-xl px-5 py-3 flex items-center justify-between gap-3">
+      <div class="text-sm">
+        <span class="font-semibold text-blue-200">Nieuwe versie beschikbaar:</span>
+        <span class="font-mono text-blue-300 ml-1" x-text="'v' + updateLatest"></span>
+        <span class="text-blue-500 text-xs ml-2">(huidig v{{ app_version }})</span>
+      </div>
+      <button @click="installUpdate()" :disabled="updateInstalling"
+              :class="updateInstalling ? 'opacity-60 cursor-not-allowed' : 'hover:bg-blue-500 cursor-pointer'"
+              class="shrink-0 px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg transition-colors flex items-center gap-1.5">
+        <span x-show="!updateInstalling">↑ Installeren &amp; herstarten</span>
+        <span x-show="updateInstalling" x-cloak x-text="updateStatus || 'Bezig...'"></span>
+      </button>
     </div>
 
     <form id="mainForm" class="space-y-5">
