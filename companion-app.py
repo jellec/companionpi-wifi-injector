@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.8"
+APP_VERSION      = "0.4.9"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -209,10 +209,11 @@ def _install_macos(tmp: Path, zip_path: Path):
     script = tmp / "cpw_update.sh"
     script.write_text(
         "#!/bin/bash\n"
-        "sleep 1.5\n"
+        "sleep 2.5\n"
         f'rsync -a --delete "{new_app}/" "{old_app}/"\n'
+        f'chmod +x "{old_app}/Contents/MacOS/companion-app" 2>/dev/null\n'
         f'xattr -cr "{old_app}" 2>/dev/null\n'
-        f'open "{old_app}"\n'
+        f'open -n "{old_app}"\n'
     )
     os.chmod(script, 0o755)
     subprocess.Popen(["/bin/bash", str(script)],
@@ -221,8 +222,8 @@ def _install_macos(tmp: Path, zip_path: Path):
 
     with _update_lock:
         _update.update(status="relaunching")
-    time.sleep(0.3)
-    sys.exit(0)
+    time.sleep(0.5)
+    os._exit(0)  # os._exit kills the whole process; sys.exit only kills this thread
 
 
 def _install_windows(exe_path: Path):
@@ -246,8 +247,8 @@ def _install_windows(exe_path: Path):
     subprocess.Popen(["cmd", "/c", str(bat)],
                      start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(0.3)
-    sys.exit(0)
+    time.sleep(0.5)
+    os._exit(0)  # os._exit kills the whole process; sys.exit only kills this thread
 
 
 # ── Wifi repo cache ───────────────────────────────────────────────────────────
