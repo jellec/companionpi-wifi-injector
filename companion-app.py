@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.5"
+APP_VERSION      = "0.4.6"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -256,7 +256,8 @@ _repo_lock = threading.Lock()
 
 def wifi_repo_status() -> dict:
     if not WIFI_REPO_CACHE.exists():
-        return {"cached": False, "age_s": None, "size_mb": None, "static_ok": False}
+        return {"cached": False, "age_s": None, "size_mb": None, "static_ok": False,
+                "repo_version": "", "commit_date": ""}
     marker = WIFI_REPO_CACHE / ".fetch_time"
     age_s  = int(time.time() - marker.stat().st_mtime) if marker.exists() else None
     size   = sum(f.stat().st_size for f in WIFI_REPO_CACHE.rglob("*") if f.is_file())
@@ -264,8 +265,21 @@ def wifi_repo_status() -> dict:
         (WIFI_REPO_CACHE / "webapp" / "static" / "tailwind.js").exists() and
         (WIFI_REPO_CACHE / "webapp" / "static" / "alpine.min.js").exists()
     )
+    # Read VERSION file from cached repo
+    version_file = WIFI_REPO_CACHE / "VERSION"
+    repo_version = version_file.read_text().strip() if version_file.exists() else ""
+    # Read last git commit date (ISO 8601) from cached repo
+    commit_date = ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(WIFI_REPO_CACHE), "log", "-1", "--format=%ci"],
+            capture_output=True, text=True, timeout=5)
+        commit_date = result.stdout.strip()[:16] if result.returncode == 0 else ""
+    except Exception:
+        pass
     return {"cached": True, "age_s": age_s,
-            "size_mb": round(size / 1024 / 1024, 1), "static_ok": static_ok}
+            "size_mb": round(size / 1024 / 1024, 1), "static_ok": static_ok,
+            "repo_version": repo_version, "commit_date": commit_date}
 
 
 def _download_flask_wheels(dest: Path):

@@ -17,6 +17,8 @@
     repoAge: {{ repo.age_s or 'null' }},
     repoSize: {{ repo.size_mb or 'null' }},
     repoStaticOk: {{ 'true' if repo.static_ok else 'false' }},
+    repoVersion: '{{ repo.repo_version }}',
+    repoCommitDate: '{{ repo.commit_date }}',
     repoUrl: '{{ repo_url_default }}',
 
     /* ── SD kaart ── */
@@ -84,6 +86,7 @@
           if (d.error) { this.repoError = d.error; return; }
           this.repoCached = d.cached; this.repoStaticOk = d.static_ok;
           this.repoSize = d.size_mb; this.repoAge = d.age_s;
+          this.repoVersion = d.repo_version || ''; this.repoCommitDate = d.commit_date || '';
         }
       }, 1000);
     },
@@ -258,9 +261,13 @@
             <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold shrink-0">1</span>
             <h2 class="font-semibold">Fetch wifi repo</h2>
           </div>
-          <div x-show="repoReady && !repoFetching" class="text-xs font-medium bg-emerald-900/50 text-emerald-300 ring-1 ring-emerald-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
-            Cached · <span x-text="repoAgeLabel + ' · ' + repoSize + ' MB'"></span>
+          <div x-show="repoReady && !repoFetching" class="flex items-center gap-2">
+            <span class="text-xs font-medium bg-emerald-900/50 text-emerald-300 ring-1 ring-emerald-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+              Cached · <span x-text="repoAgeLabel"></span>
+            </span>
+            <span x-show="repoVersion" class="text-xs font-mono text-slate-400 bg-slate-900/60 px-2 py-0.5 rounded-full ring-1 ring-slate-700/50"
+                  x-text="'v' + repoVersion + (repoCommitDate ? '  ·  ' + repoCommitDate : '')"></span>
           </div>
           <div x-show="!repoReady && !repoFetching" class="text-xs font-medium bg-amber-900/50 text-amber-300 ring-1 ring-amber-700/50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span>Niet gecached
