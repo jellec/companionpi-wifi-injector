@@ -28,6 +28,7 @@ APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/A
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
 GITHUB_RELEASE   = "https://api.github.com/repos/jellec/companionpi-wifi-injector/releases/tags/latest"
+GITHUB_ACTIONS   = "https://api.github.com/repos/jellec/companionpi-wifi-injector/actions/runs"
 
 CMDLINE_ADD = (
     " systemd.run=/boot/firmware/firstrun.sh"
@@ -605,6 +606,29 @@ def api_inject():
         return json.dumps({"ok": True, "hostname": hostname}), 200, {"Content-Type": "application/json"}
     except Exception as e:
         return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
+
+
+@app.route("/api/ci/status")
+def api_ci_status():
+    try:
+        req = urllib.request.Request(
+            f"{GITHUB_ACTIONS}?per_page=1&branch=main",
+            headers={"User-Agent": f"companionpi-app/{APP_VERSION}",
+                     "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read().decode())
+        runs = data.get("workflow_runs", [])
+        if not runs:
+            return json.dumps({"status": "unknown"}), 200, {"Content-Type": "application/json"}
+        run = runs[0]
+        return json.dumps({
+            "status":     run.get("status"),      # queued | in_progress | completed
+            "conclusion": run.get("conclusion"),  # success | failure | cancelled | …
+            "title":      run.get("display_title", ""),
+            "url":        run.get("html_url", ""),
+        }), 200, {"Content-Type": "application/json"}
+    except Exception:
+        return json.dumps({"status": "unknown"}), 200, {"Content-Type": "application/json"}
 
 
 @app.route("/api/version")

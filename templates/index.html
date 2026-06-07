@@ -40,6 +40,18 @@
     /* ── quit ── */
     appStopped: false,
 
+    /* ── CI status ── */
+    ciStatus: 'unknown',   // unknown | queued | in_progress | completed
+    ciConclusion: '',      // success | failure | cancelled | ''
+    ciUrl: '',
+    async pollCiStatus() {
+      try {
+        const d = await fetch('/api/ci/status').then(r => r.json()).catch(() => null);
+        if (d) { this.ciStatus = d.status || 'unknown'; this.ciConclusion = d.conclusion || ''; this.ciUrl = d.url || ''; }
+      } catch(e) {}
+      setTimeout(() => this.pollCiStatus(), 30000);
+    },
+
     get repoReady() { return this.repoCached && this.repoStaticOk; },
     get repoAgeLabel() {
       if (this.repoAge === null) return '';
@@ -137,6 +149,7 @@
     {% if repo_fetch.running %}repoFetching = true; repoStep = '{{ repo_fetch.step }}'; pollRepo();{% endif %}
     loadPartitions();
     setTimeout(() => checkUpdate(), 6000);
+    pollCiStatus();
   "
 >
 
@@ -197,6 +210,27 @@
         </div>
       </div>
       <p class="text-sm text-slate-400">Schrijft WiFi &amp; netwerkinstellingen direct op een SD kaart — geen internet nodig na inject</p>
+
+      <!-- CI status badge -->
+      <div class="flex justify-center mt-1">
+        <a :href="ciUrl || '#'" target="_blank"
+           x-show="ciStatus !== 'unknown'"
+           x-cloak
+           class="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors"
+           :class="{
+             'border-yellow-700/60 bg-yellow-950/40 text-yellow-400': ciStatus === 'in_progress' || ciStatus === 'queued',
+             'border-green-700/60 bg-green-950/40 text-green-400': ciStatus === 'completed' && ciConclusion === 'success',
+             'border-red-700/60 bg-red-950/40 text-red-400': ciStatus === 'completed' && ciConclusion !== 'success' && ciConclusion !== ''
+           }">
+          <span x-show="ciStatus === 'in_progress' || ciStatus === 'queued'"
+                class="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span>
+          <span x-show="ciStatus === 'completed' && ciConclusion === 'success'"
+                class="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+          <span x-show="ciStatus === 'completed' && ciConclusion !== 'success' && ciConclusion !== ''"
+                class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+          <span x-text="ciStatus === 'in_progress' ? 'Bouwen...' : ciStatus === 'queued' ? 'Wachtrij...' : ciConclusion === 'success' ? 'Build geslaagd' : 'Build mislukt'"></span>
+        </a>
+      </div>
     </div>
 
     <!-- Update banner -->
