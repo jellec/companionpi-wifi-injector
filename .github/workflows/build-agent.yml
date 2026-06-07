@@ -24,7 +24,7 @@ jobs:
         run: pip install pyinstaller -r requirements.txt
       - name: Embed build date
         run: |
-          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          BUILD_DATE=$(date -u '+%Y-%m-%dT%H:%MZ')
           sed -i '' "s|APP_BUILD_DATE.*=.*\"unknown\"|APP_BUILD_DATE = \"$BUILD_DATE\"|" companion-app.py
       - name: Build .app bundle
         run: |
@@ -55,7 +55,7 @@ jobs:
       - name: Embed build date
         shell: bash
         run: |
-          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          BUILD_DATE=$(date -u '+%Y-%m-%dT%H:%MZ')
           sed -i "s|APP_BUILD_DATE.*=.*\"unknown\"|APP_BUILD_DATE = \"$BUILD_DATE\"|" companion-app.py
       - name: Build .exe
         run: |
@@ -83,7 +83,7 @@ jobs:
         run: pip install pyinstaller -r requirements.txt
       - name: Embed build date
         run: |
-          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          BUILD_DATE=$(date -u '+%Y-%m-%dT%H:%MZ')
           sed -i "s|APP_BUILD_DATE.*=.*\"unknown\"|APP_BUILD_DATE = \"$BUILD_DATE\"|" companion-app.py
       - name: Build Linux binary
         run: |
@@ -112,9 +112,11 @@ jobs:
         id: ver
         run: |
           VERSION=$(grep '^APP_VERSION' companion-app.py | cut -d'"' -f2)
-          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          BUILD_DATE=$(date -u '+%Y-%m-%dT%H:%MZ')
+          BUILD_DATE_HUMAN=$(date -u '+%Y-%m-%d %H:%M UTC')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          echo "build_date_human=$BUILD_DATE_HUMAN" >> $GITHUB_OUTPUT
           sed -i "s|APP_BUILD_DATE.*=.*\"unknown\"|APP_BUILD_DATE = \"$BUILD_DATE\"|" companion-app.py
 
       - uses: actions/download-artifact@v4
@@ -138,7 +140,7 @@ jobs:
           prerelease: true
           make_latest: false
           body: |
-            **v${{ steps.ver.outputs.version }}** — gebouwd op ${{ steps.ver.outputs.build_date }}
+            **v${{ steps.ver.outputs.version }}** — gebouwd op ${{ steps.ver.outputs.build_date_human }}
 
             | Bestand | Platform | Gebruik |
             |---|---|---|

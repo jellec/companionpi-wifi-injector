@@ -37,6 +37,9 @@
     updateStatus: '',
     updateProgress: 0,
 
+    /* ── quit ── */
+    appStopped: false,
+
     get repoReady() { return this.repoCached && this.repoStaticOk; },
     get repoAgeLabel() {
       if (this.repoAge === null) return '';
@@ -110,8 +113,8 @@
 
     async quitApp() {
       if (!confirm('App stoppen?')) return;
+      this.appStopped = true;
       await fetch('/api/quit', { method: 'POST' }).catch(() => null);
-      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:monospace;color:#94a3b8;background:#0f172a">CompanionPi Injector gestopt.</div>';
     },
 
     async doInject(formEl) {
@@ -136,6 +139,12 @@
     setTimeout(() => checkUpdate(), 6000);
   "
 >
+
+  <!-- Stopped overlay -->
+  <div x-show="appStopped" x-cloak
+       class="fixed inset-0 bg-slate-950 flex items-center justify-center z-50">
+    <p class="font-mono text-slate-400 text-sm">CompanionPi Injector gestopt.</p>
+  </div>
 
   <div class="max-w-xl mx-auto px-4 py-12 space-y-6">
 
@@ -175,8 +184,15 @@
           <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700 cursor-default select-none">v{{ app_version }}</span>
           {% if app_build_date != 'unknown' %}
           <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-            Gebouwd: {{ app_build_date }}
+            Gebouwd: <span data-utc="{{ app_build_date }}"></span>
           </div>
+          <script>
+            (function(){
+              const el = document.currentScript.previousElementSibling.querySelector('[data-utc]');
+              const d = new Date(el.dataset.utc);
+              el.textContent = isNaN(d) ? el.dataset.utc : d.toLocaleString();
+            })();
+          </script>
           {% endif %}
         </div>
       </div>
