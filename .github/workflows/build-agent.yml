@@ -147,7 +147,7 @@ jobs:
 
             | Bestand | Platform | Gebruik |
             |---|---|---|
-            | `companion-app-macos.zip` | macOS | Pak uit → rechtermuisknop → **Open** (eenmalig voor Gatekeeper) |
+            | `companion-app-macos.zip` | macOS | Pak uit → open Terminal → `xattr -cr companion-app.app && open companion-app.app` (eenmalig voor Gatekeeper) |
             | `companion-app.exe` | Windows | Dubbelklik om te starten |
             | `companion-app-linux` | Linux x86_64 | `chmod +x companion-app-linux && ./companion-app-linux` |
 
