@@ -1,6 +1,13 @@
 #!/bin/bash
 # CompanionPi firstrun.sh — injected by companionpi-wifi-injector, runs on first RPi boot
 
+# Remove systemd.run= entries from cmdline.txt FIRST — before anything else can fail.
+# If this doesn't run, systemd.run_success_action=reboot causes an infinite reboot loop.
+sed -i 's| systemd\.run=[^ ]*||g'                /boot/firmware/cmdline.txt 2>/dev/null || true
+sed -i 's| systemd\.run_success_action=[^ ]*||g' /boot/firmware/cmdline.txt 2>/dev/null || true
+sed -i 's| systemd\.unit=[^ ]*||g'               /boot/firmware/cmdline.txt 2>/dev/null || true
+sync
+
 LOG=/boot/firmware/firstrun.log
 exec 1>"$LOG" 2>&1
 
@@ -141,12 +148,7 @@ python3 /tmp/cpw_status.py &
 STATUS_PID=$!
 log "Status page PID $STATUS_PID — open http://{{HOSTNAME}}.local in your browser"
 
-# Clean firstrun trigger from cmdline.txt
-log "Cleaning cmdline.txt..."
-sed -i 's| systemd\.run=[^ ]*||g' /boot/firmware/cmdline.txt
-sed -i 's| systemd\.run_success_action=[^ ]*||g' /boot/firmware/cmdline.txt
-sed -i 's| systemd\.run_failure_action=[^ ]*||g' /boot/firmware/cmdline.txt
-sed -i 's| systemd\.unit=[^ ]*||g' /boot/firmware/cmdline.txt
+log "cmdline.txt already cleaned at script start."
 
 # Copy companionpi-wifi from SD card — bundled by imager, no internet needed
 WIFI_SRC="/boot/firmware/companionpi-wifi"
@@ -230,5 +232,6 @@ sleep 60
 
 kill $STATUS_PID 2>/dev/null || true
 rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_done
-
-reboot
+sync
+# systemd triggers reboot via systemd.run_success_action=reboot in cmdline.txt
+exit 0

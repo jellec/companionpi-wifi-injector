@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.7"
+APP_VERSION      = "0.4.8"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -33,7 +33,6 @@ GITHUB_ACTIONS   = "https://api.github.com/repos/jellec/companionpi-wifi-injecto
 CMDLINE_ADD = (
     " systemd.run=/boot/firmware/firstrun.sh"
     " systemd.run_success_action=reboot"
-    " systemd.run_failure_action=reboot"
     " systemd.unit=kernel-command-line.target"
 )
 
