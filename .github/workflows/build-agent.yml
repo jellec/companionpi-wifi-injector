@@ -22,6 +22,10 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install pyinstaller -r requirements.txt
+      - name: Embed build date
+        run: |
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          sed -i '' "s|APP_BUILD_DATE.*=.*\"unknown\"|APP_BUILD_DATE = \"$BUILD_DATE\"|" companion-app.py
       - name: Build .app bundle
         run: |
           pyinstaller \
@@ -48,6 +52,11 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install pyinstaller -r requirements.txt
+      - name: Embed build date
+        shell: bash
+        run: |
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          sed -i "s|APP_BUILD_DATE.*=.*\"unknown\"|APP_BUILD_DATE = \"$BUILD_DATE\"|" companion-app.py
       - name: Build .exe
         run: |
           pyinstaller `
@@ -72,6 +81,10 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install pyinstaller -r requirements.txt
+      - name: Embed build date
+        run: |
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          sed -i "s|APP_BUILD_DATE.*=.*\"unknown\"|APP_BUILD_DATE = \"$BUILD_DATE\"|" companion-app.py
       - name: Build Linux binary
         run: |
           pyinstaller \

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.3"
+APP_VERSION      = "0.4.4"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -607,6 +607,11 @@ def api_inject():
         return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
 
 
+@app.route("/api/version")
+def api_version():
+    return json.dumps({"version": APP_VERSION}), 200, {"Content-Type": "application/json"}
+
+
 @app.route("/api/update/check")
 def api_update_check():
     with _update_lock:
@@ -649,13 +654,53 @@ def _port_in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def _get_running_version(port: int) -> str:
+    try:
+        req = urllib.request.Request(
+            f"http://localhost:{port}/api/version",
+            headers={"User-Agent": f"companionpi-app/{APP_VERSION}"})
+        with urllib.request.urlopen(req, timeout=2) as r:
+            return json.loads(r.read().decode()).get("version", "")
+    except Exception:
+        return ""
+
+
+def _kill_port(port: int) -> None:
+    try:
+        if sys.platform == "win32":
+            out = subprocess.check_output(["netstat", "-ano"], text=True,
+                                          stderr=subprocess.DEVNULL)
+            for line in out.splitlines():
+                if f":{port} " in line and "LISTENING" in line:
+                    pid = line.split()[-1]
+                    subprocess.call(["taskkill", "/F", "/PID", pid],
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+        else:
+            subprocess.call(
+                f"lsof -ti tcp:{port} | xargs kill -9 2>/dev/null",
+                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     url = f"http://localhost:{PORT}"
 
     if _port_in_use(PORT):
-        # Already running — just open browser to existing instance
-        webbrowser.open(url)
-        sys.exit(0)
+        running_version = _get_running_version(PORT)
+        if running_version == APP_VERSION:
+            # Zelfde versie al actief — open gewoon de browser
+            webbrowser.open(url)
+            sys.exit(0)
+        # Andere (oudere) versie actief — vervang die
+        print(f"  Oude versie '{running_version or '?'}' op port {PORT} gevonden — vervangen door v{APP_VERSION}...")
+        _kill_port(PORT)
+        time.sleep(1.5)
+        if _port_in_use(PORT):
+            # Nog steeds bezet — open toch de browser
+            webbrowser.open(url)
+            sys.exit(0)
 
     threading.Thread(
         target=lambda: (time.sleep(1.2), webbrowser.open(url)),
