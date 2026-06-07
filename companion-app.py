@@ -23,7 +23,8 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.2"
+APP_VERSION      = "0.4.3"
+APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
 GITHUB_RELEASE   = "https://api.github.com/repos/jellec/companionpi-wifi-injector/releases/tags/latest"
@@ -266,6 +267,53 @@ def wifi_repo_status() -> dict:
             "size_mb": round(size / 1024 / 1024, 1), "static_ok": static_ok}
 
 
+def _download_flask_wheels(dest: Path):
+    """Download Flask + deps as ARM64/pure-Python wheels via PyPI JSON API."""
+    deps = {
+        "flask": "3.0.3",
+        "werkzeug": "3.0.3",
+        "jinja2": "3.1.4",
+        "click": "8.1.7",
+        "itsdangerous": "2.2.0",
+        "blinker": "1.8.2",
+        "markupsafe": "2.1.5",
+    }
+    ctx = _ssl_context()
+    for pkg, ver in deps.items():
+        try:
+            req = urllib.request.Request(
+                f"https://pypi.org/pypi/{pkg}/{ver}/json",
+                headers={"User-Agent": f"companionpi-app/{APP_VERSION}"})
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                data = json.loads(r.read())
+
+            wheels = [u for u in data["urls"] if u["packagetype"] == "bdist_wheel"]
+
+            def _rank(u):
+                fn = u["filename"]
+                if "linux_aarch64" in fn or "manylinux" in fn and "aarch64" in fn:
+                    return 0
+                if "none-any" in fn:
+                    return 1
+                return 99
+
+            wheels.sort(key=_rank)
+            if not wheels or _rank(wheels[0]) == 99:
+                continue
+
+            filename = wheels[0]["filename"]
+            whl_path = dest / filename
+            if whl_path.exists():
+                continue
+            whl_req = urllib.request.Request(
+                wheels[0]["url"],
+                headers={"User-Agent": f"companionpi-app/{APP_VERSION}"})
+            with urllib.request.urlopen(whl_req, context=ctx, timeout=30) as r:
+                whl_path.write_bytes(r.read())
+        except Exception:
+            pass  # best-effort per package
+
+
 def _do_fetch_repo(repo_url: str):
     with _repo_lock:
         _repo.update(running=True, done=False, error="", step="Starting...")
@@ -298,6 +346,15 @@ def _do_fetch_repo(repo_url: str):
                 url, headers={"User-Agent": f"companionpi-app/{APP_VERSION}"})
             with urllib.request.urlopen(req, context=_ssl_context(), timeout=30) as r:
                 (static_dir / name).write_bytes(r.read())
+
+        # Download Flask wheels for offline RPi install (ARM64 + pure-Python)
+        # Uses PyPI JSON API directly — no pip required, no platform issues
+        with _repo_lock:
+            _repo["step"] = "Downloading Python wheels..."
+        wheels_dir = WIFI_REPO_CACHE / "wheels"
+        wheels_dir.mkdir(exist_ok=True)
+        if not list(wheels_dir.glob("Flask*.whl")):
+            _download_flask_wheels(wheels_dir)
 
         (WIFI_REPO_CACHE / ".fetch_time").touch()
         with _repo_lock:
@@ -501,6 +558,7 @@ def index():
     return render_template("index.html",
                            repo_url_default=REPO_URL_DEFAULT,
                            app_version=APP_VERSION,
+                           app_build_date=APP_BUILD_DATE,
                            repo=repo, repo_fetch=repo_fetch,
                            update_info=update_info)
 

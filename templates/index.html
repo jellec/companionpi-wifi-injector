@@ -136,13 +136,45 @@
     <!-- Header -->
     <div class="text-center space-y-2">
       <div class="flex justify-center">
-        <img src="/static/logo.svg" class="h-14 w-14" alt="CompanionPi logo">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" class="h-14 w-14">
+          <circle cx="50" cy="50" r="49" fill="#1e293b"/>
+          <path d="M25 32 a35 35 0 0 1 50 0" stroke="#3b82f6" stroke-width="5" stroke-linecap="round" fill="none"/>
+          <path d="M33 40 a24 24 0 0 1 34 0" stroke="#3b82f6" stroke-width="5" stroke-linecap="round" fill="none"/>
+          <path d="M41 48 a13 13 0 0 1 18 0" stroke="#3b82f6" stroke-width="5" stroke-linecap="round" fill="none"/>
+          <circle cx="50" cy="54" r="3.5" fill="#3b82f6"/>
+          <line x1="15" y1="63" x2="12.5" y2="59" stroke="#4ade80" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="19" y1="62" x2="19" y2="58" stroke="#4ade80" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="23" y1="63" x2="25.5" y2="59" stroke="#4ade80" stroke-width="2.2" stroke-linecap="round"/>
+          <circle cx="15" cy="68" r="4.5" fill="#bc1142"/>
+          <circle cx="23" cy="68" r="4.5" fill="#bc1142"/>
+          <circle cx="19" cy="65" r="4.5" fill="#bc1142"/>
+          <circle cx="19" cy="73" r="4.5" fill="#bc1142"/>
+          <circle cx="12.5" cy="74" r="3.5" fill="#bc1142"/>
+          <circle cx="25.5" cy="74" r="3.5" fill="#bc1142"/>
+          <path d="M30 62 L52 57 L30 66" stroke="white" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+          <path d="M30 67 L52 66 L30 71" stroke="white" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+          <path d="M30 72 L52 75 L30 76" stroke="white" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+          <path d="M30 76 L52 84 L30 80" stroke="white" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+          <circle cx="63" cy="60" r="5" fill="white"/>
+          <circle cx="76" cy="60" r="5" fill="white"/>
+          <circle cx="63" cy="70" r="5" fill="white"/>
+          <circle cx="76" cy="70" r="5" fill="white"/>
+          <circle cx="63" cy="80" r="5" fill="white"/>
+          <circle cx="76" cy="80" r="5" fill="white"/>
+        </svg>
       </div>
       <div class="flex items-center justify-center gap-2">
         <h1 class="text-2xl font-bold">CompanionPi Injector</h1>
-        <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">v{{ app_version }}</span>
+        <div class="relative group">
+          <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700 cursor-default select-none">v{{ app_version }}</span>
+          {% if app_build_date != 'unknown' %}
+          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+            Gebouwd: {{ app_build_date }}
+          </div>
+          {% endif %}
+        </div>
       </div>
-      <p class="text-sm text-slate-400">Flash, configureer en injecteer CompanionPi op een SD kaart</p>
+      <p class="text-sm text-slate-400">Schrijft WiFi &amp; netwerkinstellingen direct op een SD kaart — geen internet nodig na inject</p>
     </div>
 
     <!-- Update banner -->
@@ -212,7 +244,7 @@
             <span class="font-semibold text-blue-100 text-sm">CompanionPi</span>
             <span class="bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 px-1.5 py-0.5 rounded-full font-medium">by Bitfocus</span>
           </div>
-          <div>Flash de CompanionPi ARM64 image via Raspberry Pi Imager, sluit de SD kaart aan en klik Inject.</div>
+          <div>Flash eerst de CompanionPi ARM64 image via <strong>Raspberry Pi Imager</strong>. Sluit daarna de SD kaart aan en gebruik deze injector om WiFi, hostname en SSH in te stellen.</div>
         </div>
 
         <div class="grid grid-cols-2 gap-4">

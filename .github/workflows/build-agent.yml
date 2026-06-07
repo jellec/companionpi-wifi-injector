@@ -95,13 +95,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get version and build time
+      - name: Get version and embed build date
         id: ver
         run: |
           VERSION=$(grep '^APP_VERSION' companion-app.py | cut -d'"' -f2)
           BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          sed -i "s|APP_BUILD_DATE.*=.*\"unknown\"|APP_BUILD_DATE = \"$BUILD_DATE\"|" companion-app.py
 
       - uses: actions/download-artifact@v4
         with:
@@ -120,7 +121,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: "CompanionPi Injector v${{ steps.ver.outputs.version }} — ${{ steps.ver.outputs.build_date }}"
+          name: "CompanionPi Injector v${{ steps.ver.outputs.version }}"
           prerelease: true
           make_latest: false
           body: |
