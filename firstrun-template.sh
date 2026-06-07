@@ -57,12 +57,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         failed = os.path.exists(FAIL_FLAG)
         refresh = "" if (done or failed) else '<meta http-equiv="refresh" content="3">'
         if done:
-            status_html = f'''<div style="margin:24px;background:#052e16;border:1px solid #166534;border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px">
-              <div style="color:#4ade80;font-weight:600">&#10003; Install complete!</div>
-              <a href="http://{HOSTNAME}.local:8000" target="_blank"
-                 style="background:#2563eb;color:white;padding:8px 18px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600">
-                Open Companion &#8594;
-              </a>
+            status_html = f'''<div style="margin:24px;background:#052e16;border:1px solid #166534;border-radius:12px;padding:16px 20px">
+              <div style="color:#4ade80;font-weight:600;margin-bottom:10px">&#10003; Install complete! Rebooting in 60 seconds...</div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <a href="http://{HOSTNAME}.local" target="_blank"
+                   style="background:#1d4ed8;color:white;padding:8px 18px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600">
+                  &#9881; WiFi settings &#8594;
+                </a>
+                <a href="http://{HOSTNAME}.local:8000" target="_blank"
+                   style="background:#166534;color:white;padding:8px 18px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600">
+                  Open Companion &#8594;
+                </a>
+              </div>
+              <div style="color:#6b7280;font-size:11px;margin-top:8px">After reboot: connect to WiFi &ldquo;{HOSTNAME}&rdquo; or check your network for the RPi IP.</div>
             </div>'''
             badge = '<div class="badge" style="background:#4ade801a;color:#4ade80;border:1px solid #4ade8033"><span class="dot" style="background:#4ade80"></span>Done</div>'
         elif failed:
@@ -218,10 +225,10 @@ log "=== First boot complete ==="
 touch /tmp/cpw_install_done
 log "Companion:     http://{{HOSTNAME}}.local:8000"
 log "Network config: http://{{HOSTNAME}}.local"
-log "Status page stays up for 5 minutes, then rebooting..."
-sleep 300
+log "Rebooting in 60 seconds..."
+sleep 60
 
 kill $STATUS_PID 2>/dev/null || true
 rm -f /boot/firmware/firstrun.sh /tmp/cpw_status.py /tmp/cpw_install_done
 
-exit 0
+reboot
