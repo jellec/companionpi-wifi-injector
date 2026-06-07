@@ -95,11 +95,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get version
+      - name: Get version and build time
         id: ver
         run: |
           VERSION=$(grep '^APP_VERSION' companion-app.py | cut -d'"' -f2)
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
 
       - uses: actions/download-artifact@v4
         with:
@@ -109,15 +111,20 @@ jobs:
       - name: Rename Linux binary
         run: mv artifacts/companion-app artifacts/companion-app-linux
 
+      - name: Delete existing latest tag (so GitHub shows current build time)
+        run: git push origin :refs/tags/latest 2>/dev/null || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create/update latest release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: CompanionPi Injector v${{ steps.ver.outputs.version }}
+          name: "CompanionPi Injector v${{ steps.ver.outputs.version }} — ${{ steps.ver.outputs.build_date }}"
           prerelease: true
           make_latest: false
           body: |
-            **v${{ steps.ver.outputs.version }}** — automatisch gebouwd bij elke push naar `main`.
+            **v${{ steps.ver.outputs.version }}** — gebouwd op ${{ steps.ver.outputs.build_date }}
 
             | Bestand | Platform | Gebruik |
             |---|---|---|
@@ -126,6 +133,7 @@ jobs:
             | `companion-app-linux` | Linux x86_64 | `chmod +x companion-app-linux && ./companion-app-linux` |
 
             De app opent automatisch de browser op **http://localhost:7070**.
+            Updates worden automatisch gedetecteerd vanuit de app zelf.
           files: |
             artifacts/companion-app-macos.zip
             artifacts/companion-app.exe
