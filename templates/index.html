@@ -102,9 +102,25 @@
       this.partitionsLoading = false;
     },
 
+    updateChecking: false,
     async checkUpdate() {
-      const d = await fetch('/api/update/check').then(r => r.json()).catch(() => null);
-      if (d && d.available) { this.updateAvailable = true; this.updateLatest = d.latest; }
+      this.updateChecking = true;
+      await fetch('/api/update/refresh', { method: 'POST' }).catch(() => null);
+      // Poll until last_checked advances (server check completes, max 12s)
+      const before = (await fetch('/api/update/check').then(r => r.json()).catch(() => ({last_checked:0}))).last_checked;
+      let waited = 0;
+      while (waited < 12) {
+        await new Promise(r => setTimeout(r, 1000));
+        waited++;
+        const d = await fetch('/api/update/check').then(r => r.json()).catch(() => null);
+        if (!d) break;
+        if (d.last_checked > before) {
+          if (d.available) { this.updateAvailable = true; this.updateLatest = d.latest; }
+          break;
+        }
+      }
+      this.updateChecking = false;
+      setTimeout(() => this.checkUpdate(), 300000); // re-check every 5 min
     },
 
     async installUpdate() {
@@ -194,7 +210,7 @@
           <circle cx="76" cy="80" r="5" fill="white"/>
         </svg>
       </div>
-      <div class="flex items-center justify-center gap-2">
+      <div class="flex items-center justify-center gap-2 flex-wrap">
         <h1 class="text-2xl font-bold">CompanionPi Injector</h1>
         <div class="relative group">
           <span class="text-xs text-slate-500 font-mono bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700 cursor-default select-none">v{{ app_version }}</span>
@@ -211,6 +227,14 @@
           </script>
           {% endif %}
         </div>
+        <!-- Update check button -->
+        <button @click="checkUpdate()" :disabled="updateChecking"
+                :class="updateChecking ? 'opacity-50 cursor-not-allowed' : 'hover:text-slate-300 cursor-pointer'"
+                class="text-xs text-slate-600 transition-colors select-none"
+                :title="updateChecking ? 'Controleren...' : 'Controleer op updates'">
+          <span x-show="!updateChecking">↻</span>
+          <span x-show="updateChecking" x-cloak class="animate-spin inline-block">↻</span>
+        </button>
       </div>
       <p class="text-sm text-slate-400">Schrijft WiFi &amp; netwerkinstellingen direct op een SD kaart — geen internet nodig na inject</p>
 

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.6"
+APP_VERSION      = "0.4.7"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -87,6 +87,7 @@ _update = {
     "available": False, "latest": "", "status": "idle",
     "progress": 0, "error": "", "download_path": "",
     "download_url": "", "asset_name": "",
+    "last_checked": 0,   # unix timestamp of last successful check attempt
 }
 _update_lock = threading.Lock()
 
@@ -135,9 +136,11 @@ def _check_update_async():
 
         with _update_lock:
             _update.update(available=True, latest=latest, status="available",
-                           download_url=asset_url, asset_name=asset_name)
-    except Exception:
-        pass
+                           download_url=asset_url, asset_name=asset_name,
+                           last_checked=int(time.time()))
+    except Exception as e:
+        with _update_lock:
+            _update["last_checked"] = int(time.time())
 
 
 def _do_install_update():
@@ -665,6 +668,13 @@ def api_update_check():
         return json.dumps(dict(_update)), 200, {"Content-Type": "application/json"}
 
 
+@app.route("/api/update/refresh", methods=["POST"])
+def api_update_refresh():
+    """Trigger an immediate update check and return the result."""
+    threading.Thread(target=_check_update_async, daemon=True).start()
+    return json.dumps({"triggered": True}), 200, {"Content-Type": "application/json"}
+
+
 @app.route("/api/update/install", methods=["POST"])
 def api_update_install():
     with _update_lock:
@@ -753,10 +763,12 @@ if __name__ == "__main__":
         target=lambda: (time.sleep(1.2), webbrowser.open(url)),
         daemon=True
     ).start()
-    threading.Thread(
-        target=lambda: (time.sleep(4), _check_update_async()),
-        daemon=True
-    ).start()
+    def _update_loop():
+        time.sleep(4)
+        while True:
+            _check_update_async()
+            time.sleep(1800)   # re-check every 30 minutes
+    threading.Thread(target=_update_loop, daemon=True).start()
 
     print(f"\n  CompanionPi Injector v{APP_VERSION}  →  {url}\n")
     app.run(host="127.0.0.1", port=PORT, debug=False)
