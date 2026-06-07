@@ -37,7 +37,9 @@ jobs:
             --hidden-import passlib.handlers.sha2_crypt \
             companion-app.py
       - name: Zip .app
-        run: cd dist && zip -r companion-app-macos.zip companion-app.app
+        run: |
+          cp open-macos.command dist/
+          cd dist && zip -r companion-app-macos.zip companion-app.app open-macos.command
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -147,7 +149,7 @@ jobs:
 
             | Bestand | Platform | Gebruik |
             |---|---|---|
-            | `companion-app-macos.zip` | macOS | Pak uit → open Terminal → `xattr -cr companion-app.app && open companion-app.app` (eenmalig voor Gatekeeper) |
+            | `companion-app-macos.zip` | macOS | Pak uit → dubbelklik **open-macos.command** (verwijdert Gatekeeper-blokkade automatisch) |
             | `companion-app.exe` | Windows | Dubbelklik om te starten |
             | `companion-app-linux` | Linux x86_64 | `chmod +x companion-app-linux && ./companion-app-linux` |
 

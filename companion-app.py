@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.10"
+APP_VERSION      = "0.4.11"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -201,21 +201,35 @@ def _install_macos(tmp: Path, zip_path: Path):
 
     old_app = _find_app_bundle()
     if not old_app:
-        # Running from source or unknown location — just show the download
         with _update_lock:
             _update.update(status="ready", download_path=str(zip_path))
         return
 
-    script = tmp / "cpw_update.sh"
+    # Copy extracted app to a fixed path outside the temp dir so it survives
+    # after os._exit() clears the process's temp resources.
+    staged = Path("/tmp/companion-app-staged.app")
+    if staged.exists():
+        shutil.rmtree(staged)
+    shutil.copytree(str(new_app), str(staged))
+    subprocess.call(["xattr", "-cr", str(staged)])
+
+    # Write update script to a fixed path (not inside tmp which may be cleaned up).
+    old_pid = os.getpid()
+    script = Path("/tmp/cpw_update.sh")
     script.write_text(
         "#!/bin/bash\n"
-        "sleep 2.5\n"
-        f'rsync -a --delete "{new_app}/" "{old_app}/"\n'
-        f'chmod +x "{old_app}/Contents/MacOS/companion-app" 2>/dev/null\n'
-        f'xattr -cr "{old_app}" 2>/dev/null\n'
-        f'open -n "{old_app}"\n'
+        "exec >> /tmp/cpw_update.log 2>&1\n"
+        "set -x\n"
+        f"OLD_PID={old_pid}\n"
+        "sleep 1\n"
+        'kill "$OLD_PID" 2>/dev/null; sleep 1.5; kill -9 "$OLD_PID" 2>/dev/null || true\n'
+        f'rsync -a --delete "{staged}/" "{old_app}/"\n'
+        f'chmod +x "{old_app}/Contents/MacOS/companion-app"\n'
+        f'xattr -cr "{old_app}"\n'
+        f'open -n "{old_app}" || nohup "{old_app}/Contents/MacOS/companion-app" &>/dev/null &\n'
+        "echo 'update done'\n"
     )
-    os.chmod(script, 0o755)
+    script.chmod(0o755)
     subprocess.Popen(["/bin/bash", str(script)],
                      start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -223,7 +237,7 @@ def _install_macos(tmp: Path, zip_path: Path):
     with _update_lock:
         _update.update(status="relaunching")
     time.sleep(0.5)
-    os._exit(0)  # os._exit kills the whole process; sys.exit only kills this thread
+    os._exit(0)
 
 
 def _install_windows(exe_path: Path):
