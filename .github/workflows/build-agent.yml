@@ -127,12 +127,15 @@ jobs:
       - name: Rename Linux binary
         run: mv artifacts/companion-app artifacts/companion-app-linux
 
-      - name: Delete existing latest tag (so GitHub shows current build time)
-        run: git push origin :refs/tags/latest 2>/dev/null || true
+      - name: Delete existing latest release and tag
+        run: |
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create/update latest release
+      - name: Create latest release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
