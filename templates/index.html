@@ -108,6 +108,12 @@
       }, 1000);
     },
 
+    async quitApp() {
+      if (!confirm('App stoppen?')) return;
+      await fetch('/api/quit', { method: 'POST' }).catch(() => null);
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:monospace;color:#94a3b8;background:#0f172a">CompanionPi Injector gestopt.</div>';
+    },
+
     async doInject(formEl) {
       this.injectRunning = true; this.injectDone = false; this.injectError = '';
       try {
@@ -391,6 +397,14 @@
       </details>
 
     </form>
+
+    <!-- footer quit -->
+    <div class="text-center mt-2 mb-1">
+      <button @click="quitApp()"
+              class="text-xs text-slate-600 hover:text-slate-400 transition-colors cursor-pointer underline underline-offset-2">
+        App stoppen
+      </button>
+    </div>
 
     <!-- hidden bundle form -->
     <form id="bundleForm" method="post" action="{{ url_for('api_bundle') }}" style="display:none">

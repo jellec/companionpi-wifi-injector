@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.4"
+APP_VERSION      = "0.4.5"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -610,6 +610,15 @@ def api_inject():
 @app.route("/api/version")
 def api_version():
     return json.dumps({"version": APP_VERSION}), 200, {"Content-Type": "application/json"}
+
+
+@app.route("/api/quit", methods=["POST"])
+def api_quit():
+    def _do_quit():
+        time.sleep(0.3)
+        os._exit(0)
+    threading.Thread(target=_do_quit, daemon=True).start()
+    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
 
 @app.route("/api/update/check")
