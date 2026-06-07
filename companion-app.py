@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.0"
+APP_VERSION      = "0.4.1"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
 
@@ -202,14 +202,37 @@ def _render_firstrun(hostname: str, wifi_country: str, username: str, password: 
     return template
 
 
+_FAT32_IGNORE = {".git", ".fetch_time"}
+
+
+def _fat32_copytree(src: Path, dst: Path) -> None:
+    """Recursively copy src→dst using only shutil.copyfile — safe on FAT32.
+
+    shutil.copytree calls os.utime/os.chmod on directories after creating them.
+    FAT32 volumes on macOS raise OSError for those metadata calls, so we skip
+    them entirely and only copy raw file bytes.
+    """
+    dst.mkdir(exist_ok=True)
+    for item in src.iterdir():
+        if item.name in _FAT32_IGNORE or item.name.endswith(".tmp"):
+            continue
+        target = dst / item.name
+        if item.is_dir():
+            _fat32_copytree(item, target)
+        elif item.is_file():
+            shutil.copyfile(str(item), str(target))
+
+
 def inject_to_partition(boot_path: str, hostname: str, wifi_country: str,
                         username: str, pw_hash: str, ap_ssid: str,
                         ap_password: str, install_cups: bool):
     boot = Path(boot_path)
     if not (boot / "cmdline.txt").exists():
         raise ValueError(f"Geen geldige RPi boot-partitie: {boot_path}")
-    if not WIFI_REPO_CACHE.exists():
-        raise ValueError("Wifi repo nog niet opgehaald — klik eerst Fetch.")
+
+    if not (WIFI_REPO_CACHE / "install.sh").exists():
+        raise ValueError(
+            "Wifi repo niet gevonden of leeg — klik eerst 'Fetch repo' in stap 1.")
 
     firstrun = _render_firstrun(hostname, wifi_country, username, pw_hash,
                                 ap_ssid, ap_password, install_cups)
@@ -217,21 +240,14 @@ def inject_to_partition(boot_path: str, hostname: str, wifi_country: str,
     (boot / "userconf.txt").write_text(f"{username}:{pw_hash}\n")
     (boot / "ssh").touch()
 
-    if not (WIFI_REPO_CACHE / "install.sh").exists():
-        raise ValueError(
-            "Wifi repo is leeg of corrupt — klik Re-fetch in stap 1 en probeer opnieuw.")
-
     wifi_dst = boot / "companionpi-wifi"
     if wifi_dst.exists():
         shutil.rmtree(str(wifi_dst))
-    # copy_function=shutil.copy: skip metadata/xattrs (FAT32 doesn't support them)
-    shutil.copytree(str(WIFI_REPO_CACHE), str(wifi_dst),
-                    ignore=shutil.ignore_patterns(".git", ".fetch_time", "*.tmp"),
-                    copy_function=shutil.copy)
+    _fat32_copytree(WIFI_REPO_CACHE, wifi_dst)
 
     if not (wifi_dst / "install.sh").exists():
         raise RuntimeError(
-            "companionpi-wifi kopie mislukt — installeer de app en probeer opnieuw.")
+            "companionpi-wifi kopie mislukt — probeer opnieuw of herstart de app.")
 
     cmdline = (boot / "cmdline.txt").read_text().strip()
     for pat in [r"\s+systemd\.run=\S+", r"\s+systemd\.run_success_action=\S+",

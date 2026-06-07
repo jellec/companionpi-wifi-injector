@@ -29,10 +29,10 @@ log "Enabling SSH..."
 systemctl enable ssh
 systemctl start ssh
 
-# Set password for companion user
-if [ -n "$PASSWORD" ] && [ "$IMAGE_TYPE" = "companionpi" ]; then
+# Set password for companion user (PASSWORD is a sha512_crypt hash)
+if [ -n "$PASSWORD" ]; then
     log "Setting password for user: $USERNAME"
-    echo "$USERNAME:$PASSWORD" | chpasswd 2>/dev/null || true
+    echo "$USERNAME:$PASSWORD" | chpasswd -e 2>/dev/null || true
 fi
 
 # Start install status web server on port 80
@@ -159,7 +159,9 @@ fi
 
 # Install packages best-effort (most already present in CompanionPi image)
 log "Installing packages..."
-apt-get install -y -qq --fix-missing network-manager dnsmasq rfkill wireless-tools curl 2>&1 || \
+apt-get install -y -qq --fix-missing \
+    network-manager dnsmasq rfkill wireless-tools curl \
+    python3 python3-pip python3-flask 2>&1 || \
     log "WARNING: apt-get failed — continuing with pre-installed packages"
 
 # rpi-clone (best-effort — needs internet)
@@ -203,6 +205,9 @@ sed -i "s/^WIFI_COUNTRY=.*/WIFI_COUNTRY=$WIFI_COUNTRY/" \
 sed -i "s/^WLAN0_AP_SSID=.*/WLAN0_AP_SSID=$AP_SSID/" \
     /etc/companionpi-wifi/settings.env
 sed -i "s/^WLAN0_AP_PASSWORD=.*/WLAN0_AP_PASSWORD=$AP_PASSWORD/" \
+    /etc/companionpi-wifi/settings.env
+# Clear placeholder client profiles so the RPi goes straight to AP mode on first boot
+sed -i "s/^WLAN0_CLIENT_PROFILES=.*/WLAN0_CLIENT_PROFILES=/" \
     /etc/companionpi-wifi/settings.env
 raspi-config nonint do_wifi_country "$WIFI_COUNTRY" 2>/dev/null || \
     iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
