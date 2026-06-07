@@ -11,14 +11,14 @@ sync
 LOG=/boot/firmware/firstrun.log
 exec 1>"$LOG" 2>&1
 
-HOSTNAME="{{HOSTNAME}}"
-WIFI_COUNTRY="{{WIFI_COUNTRY}}"
-USERNAME="{{USERNAME}}"
-PASSWORD="{{PASSWORD}}"
-AP_SSID="{{AP_SSID}}"
-AP_PASSWORD="{{AP_PASSWORD}}"
-INSTALL_CUPS="{{INSTALL_CUPS}}"
-IMAGE_TYPE="{{IMAGE_TYPE}}"
+HOSTNAME='{{HOSTNAME}}'
+WIFI_COUNTRY='{{WIFI_COUNTRY}}'
+USERNAME='{{USERNAME}}'
+PASSWORD='{{PASSWORD}}'
+AP_SSID='{{AP_SSID}}'
+AP_PASSWORD='{{AP_PASSWORD}}'
+INSTALL_CUPS='{{INSTALL_CUPS}}'
+IMAGE_TYPE='{{IMAGE_TYPE}}'
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
 
@@ -190,7 +190,7 @@ systemctl reload NetworkManager 2>/dev/null || true
 # Run install.sh from the bundled repo
 log "Running install.sh..."
 cd /opt/companionpi-wifi
-bash install.sh
+bash install.sh --force
 
 # Companion already installed on CompanionPi image — ensure it's enabled
 if [ "$IMAGE_TYPE" = "companionpi" ]; then
