@@ -641,10 +641,10 @@ def api_partitions():
 def api_inject():
     hostname       = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
     wifi_country   = re.sub(r"[^A-Z]", "", request.form.get("wifi_country", "BE").upper())[:2]
-    password       = request.form.get("password", "companion123")
+    password       = request.form.get("password", "companion@dmin")
     admin_password = request.form.get("admin_password", "").strip()
     ap_ssid        = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
-    ap_password    = request.form.get("ap_password", "companion123").strip() or "companion123"
+    ap_password    = request.form.get("ap_password", "companion@dmin").strip() or "companion@dmin"
     install_cups   = request.form.get("install_cups") == "on"
     boot_path      = request.form.get("boot_path", "").strip()
     if not boot_path:
@@ -724,10 +724,10 @@ def api_update_install():
 def api_bundle():
     hostname       = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
     wifi_country   = re.sub(r"[^A-Z]", "", request.form.get("wifi_country", "BE").upper())[:2]
-    password       = request.form.get("password", "companion123")
+    password       = request.form.get("password", "companion@dmin")
     admin_password = request.form.get("admin_password", "").strip()
     ap_ssid        = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
-    ap_password    = request.form.get("ap_password", "companion123").strip() or "companion123"
+    ap_password    = request.form.get("ap_password", "companion@dmin").strip() or "companion@dmin"
     install_cups   = request.form.get("install_cups") == "on"
     try:
         buf = build_bundle(hostname, wifi_country, "companion", password,
