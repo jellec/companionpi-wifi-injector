@@ -15,6 +15,7 @@ HOSTNAME='{{HOSTNAME}}'
 WIFI_COUNTRY='{{WIFI_COUNTRY}}'
 USERNAME='{{USERNAME}}'
 PASSWORD='{{PASSWORD}}'
+ADMIN_PASSWORD='{{ADMIN_PASSWORD}}'
 AP_SSID='{{AP_SSID}}'
 AP_PASSWORD='{{AP_PASSWORD}}'
 INSTALL_CUPS='{{INSTALL_CUPS}}'
@@ -40,6 +41,16 @@ systemctl start ssh
 if [ -n "$PASSWORD" ]; then
     log "Setting password for user: $USERNAME"
     echo "$USERNAME:$PASSWORD" | chpasswd -e 2>/dev/null || true
+fi
+
+# Create admin user 'pi' with full sudo — only if ADMIN_PASSWORD was set during injection
+if [ -n "$ADMIN_PASSWORD" ]; then
+    log "Creating admin user 'pi' with full sudo..."
+    useradd -m -s /bin/bash pi 2>/dev/null || log "User 'pi' already exists — updating password"
+    echo "pi:$ADMIN_PASSWORD" | chpasswd -e 2>/dev/null || true
+    echo "pi ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/010-pi-admin
+    chmod 440 /etc/sudoers.d/010-pi-admin
+    log "Admin user 'pi' created (SSH: ssh pi@$HOSTNAME.local)"
 fi
 
 # Start install status web server on port 80

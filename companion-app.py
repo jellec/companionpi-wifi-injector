@@ -23,7 +23,7 @@ from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.13"
+APP_VERSION      = "0.4.14"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -300,7 +300,11 @@ def wifi_repo_status() -> dict:
 
 
 def _download_flask_wheels(dest: Path):
-    """Download Flask + deps as ARM64/pure-Python wheels via PyPI JSON API."""
+    """Download Flask + deps as ARM64/pure-Python wheels via PyPI JSON API.
+
+    Targets Raspberry Pi OS Bookworm (Python 3.13, aarch64).
+    Prefers cp313 aarch64 wheels, then cp312, then none-any (pure Python).
+    """
     deps = {
         "flask": "3.0.3",
         "werkzeug": "3.0.3",
@@ -308,9 +312,23 @@ def _download_flask_wheels(dest: Path):
         "click": "8.1.7",
         "itsdangerous": "2.2.0",
         "blinker": "1.8.2",
-        "markupsafe": "2.1.5",
+        "markupsafe": "3.0.2",  # 3.0.2 has native cp313 aarch64 wheels
     }
     ctx = _ssl_context()
+
+    def _rank(u):
+        fn = u["filename"]
+        is_aarch64 = "linux_aarch64" in fn or ("manylinux" in fn and "aarch64" in fn)
+        if is_aarch64:
+            if "cp313" in fn:
+                return 0  # exact match for RPi OS Bookworm Python 3.13
+            if "cp312" in fn:
+                return 1
+            return 2   # older aarch64 — works via pure-Python fallback after zipfile extraction
+        if "none-any" in fn:
+            return 3   # pure Python, works on any version
+        return 99      # skip (wrong arch or platform)
+
     for pkg, ver in deps.items():
         try:
             req = urllib.request.Request(
@@ -320,15 +338,6 @@ def _download_flask_wheels(dest: Path):
                 data = json.loads(r.read())
 
             wheels = [u for u in data["urls"] if u["packagetype"] == "bdist_wheel"]
-
-            def _rank(u):
-                fn = u["filename"]
-                if "linux_aarch64" in fn or "manylinux" in fn and "aarch64" in fn:
-                    return 0
-                if "none-any" in fn:
-                    return 1
-                return 99
-
             wheels.sort(key=_rank)
             if not wheels or _rank(wheels[0]) == 99:
                 continue
@@ -385,7 +394,11 @@ def _do_fetch_repo(repo_url: str):
             _repo["step"] = "Downloading Python wheels..."
         wheels_dir = WIFI_REPO_CACHE / "wheels"
         wheels_dir.mkdir(exist_ok=True)
-        if not list(wheels_dir.glob("Flask*.whl")):
+        # Re-download if Flask is missing OR if MarkupSafe < 3.x is cached
+        # (MarkupSafe 2.x only has cp310 binary wheels — incompatible with Python 3.13)
+        if not list(wheels_dir.glob("Flask*.whl")) or not list(wheels_dir.glob("MarkupSafe-3*.whl")):
+            for old in wheels_dir.glob("MarkupSafe-2*.whl"):
+                old.unlink()
             _download_flask_wheels(wheels_dir)
 
         (WIFI_REPO_CACHE / ".fetch_time").touch()
@@ -443,13 +456,15 @@ def find_boot_partitions() -> list:
 # ── Inject ────────────────────────────────────────────────────────────────────
 
 def _render_firstrun(hostname: str, wifi_country: str, username: str, password: str,
-                     ap_ssid: str, ap_password: str, install_cups: bool) -> str:
+                     ap_ssid: str, ap_password: str, install_cups: bool,
+                     admin_pw_hash: str = "") -> str:
     template = TEMPLATE_FILE.read_text()
     for key, val in [
         ("{{HOSTNAME}}", hostname),
         ("{{WIFI_COUNTRY}}", wifi_country),
         ("{{USERNAME}}", username),
         ("{{PASSWORD}}", password),
+        ("{{ADMIN_PASSWORD}}", admin_pw_hash),
         ("{{AP_SSID}}", ap_ssid),
         ("{{AP_PASSWORD}}", ap_password),
         ("{{INSTALL_CUPS}}", "true" if install_cups else "false"),
@@ -482,7 +497,8 @@ def _fat32_copytree(src: Path, dst: Path) -> None:
 
 def inject_to_partition(boot_path: str, hostname: str, wifi_country: str,
                         username: str, pw_hash: str, ap_ssid: str,
-                        ap_password: str, install_cups: bool):
+                        ap_password: str, install_cups: bool,
+                        admin_pw_hash: str = ""):
     boot = Path(boot_path)
     if not (boot / "cmdline.txt").exists():
         raise ValueError(f"Geen geldige RPi boot-partitie: {boot_path}")
@@ -492,7 +508,7 @@ def inject_to_partition(boot_path: str, hostname: str, wifi_country: str,
             "Wifi repo niet gevonden of leeg — klik eerst 'Fetch repo' in stap 1.")
 
     firstrun = _render_firstrun(hostname, wifi_country, username, pw_hash,
-                                ap_ssid, ap_password, install_cups)
+                                ap_ssid, ap_password, install_cups, admin_pw_hash)
     (boot / "firstrun.sh").write_text(firstrun)
     (boot / "userconf.txt").write_text(f"{username}:{pw_hash}\n")
     (boot / "ssh").touch()
@@ -529,12 +545,14 @@ def inject_to_partition(boot_path: str, hostname: str, wifi_country: str,
 # ── Bundle builder (download fallback) ────────────────────────────────────────
 
 def build_bundle(hostname: str, wifi_country: str, username: str, password: str,
-                 ap_ssid: str, ap_password: str, install_cups: bool) -> io.BytesIO:
+                 ap_ssid: str, ap_password: str, install_cups: bool,
+                 admin_password: str = "") -> io.BytesIO:
     if not (WIFI_REPO_CACHE / "install.sh").exists():
         raise ValueError("Wifi repo ontbreekt of is corrupt — klik Re-fetch in stap 1.")
 
     repo_st = wifi_repo_status()
     pw_hash = hash_password(password)
+    admin_pw_hash = hash_password(admin_password) if admin_password else ""
 
     meta = {
         "hostname": hostname,
@@ -550,7 +568,7 @@ def build_bundle(hostname: str, wifi_country: str, username: str, password: str,
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("firstrun.sh",
                     _render_firstrun(hostname, wifi_country, username, pw_hash,
-                                     ap_ssid, ap_password, install_cups))
+                                     ap_ssid, ap_password, install_cups, admin_pw_hash))
         zf.writestr("userconf.txt", f"{username}:{pw_hash}\n")
         zf.writestr("ssh", "")
         zf.writestr("meta.json", json.dumps(meta, indent=2))
@@ -621,19 +639,21 @@ def api_partitions():
 
 @app.route("/api/inject", methods=["POST"])
 def api_inject():
-    hostname     = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
-    wifi_country = re.sub(r"[^A-Z]", "", request.form.get("wifi_country", "BE").upper())[:2]
-    password     = request.form.get("password", "companion123")
-    ap_ssid      = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
-    ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
-    install_cups = request.form.get("install_cups") == "on"
-    boot_path    = request.form.get("boot_path", "").strip()
+    hostname       = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
+    wifi_country   = re.sub(r"[^A-Z]", "", request.form.get("wifi_country", "BE").upper())[:2]
+    password       = request.form.get("password", "companion123")
+    admin_password = request.form.get("admin_password", "").strip()
+    ap_ssid        = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
+    ap_password    = request.form.get("ap_password", "companion123").strip() or "companion123"
+    install_cups   = request.form.get("install_cups") == "on"
+    boot_path      = request.form.get("boot_path", "").strip()
     if not boot_path:
         return json.dumps({"error": "Geen SD kaart geselecteerd"}), 400, {"Content-Type": "application/json"}
     try:
-        pw_hash = hash_password(password)
+        pw_hash       = hash_password(password)
+        admin_pw_hash = hash_password(admin_password) if admin_password else ""
         inject_to_partition(boot_path, hostname, wifi_country, "companion",
-                            pw_hash, ap_ssid, ap_password, install_cups)
+                            pw_hash, ap_ssid, ap_password, install_cups, admin_pw_hash)
         return json.dumps({"ok": True, "hostname": hostname}), 200, {"Content-Type": "application/json"}
     except Exception as e:
         return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
@@ -702,15 +722,16 @@ def api_update_install():
 
 @app.route("/api/bundle", methods=["POST"])
 def api_bundle():
-    hostname     = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
-    wifi_country = re.sub(r"[^A-Z]", "", request.form.get("wifi_country", "BE").upper())[:2]
-    password     = request.form.get("password", "companion123")
-    ap_ssid      = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
-    ap_password  = request.form.get("ap_password", "companion123").strip() or "companion123"
-    install_cups = request.form.get("install_cups") == "on"
+    hostname       = re.sub(r"[^a-zA-Z0-9\-]", "", request.form.get("hostname", "companion"))[:63]
+    wifi_country   = re.sub(r"[^A-Z]", "", request.form.get("wifi_country", "BE").upper())[:2]
+    password       = request.form.get("password", "companion123")
+    admin_password = request.form.get("admin_password", "").strip()
+    ap_ssid        = request.form.get("ap_ssid", "CompanionPi").strip() or "CompanionPi"
+    ap_password    = request.form.get("ap_password", "companion123").strip() or "companion123"
+    install_cups   = request.form.get("install_cups") == "on"
     try:
         buf = build_bundle(hostname, wifi_country, "companion", password,
-                           ap_ssid, ap_password, install_cups)
+                           ap_ssid, ap_password, install_cups, admin_password)
         filename = f"companionpi-{hostname}-{datetime.now().strftime('%Y%m%d-%H%M')}.zip"
         return send_file(buf, mimetype="application/zip",
                          download_name=filename, as_attachment=True)

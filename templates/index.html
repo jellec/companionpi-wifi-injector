@@ -354,8 +354,13 @@
             <div class="text-xs text-slate-600 mt-1">Vast — CompanionPi gebruikt <span class="font-mono">companion</span></div>
           </div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-slate-300 mb-1">Password (SSH)</label>
+            <label class="block text-sm font-medium text-slate-300 mb-1">Password (SSH — gebruiker <span class="font-mono text-slate-400">companion</span>)</label>
             <input type="text" name="password" value="companion123" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="col-span-2">
+            <label class="block text-sm font-medium text-slate-300 mb-1">Admin wachtwoord <span class="text-slate-500 font-normal">(optioneel — maakt <span class="font-mono">pi</span> user met volledige sudo)</span></label>
+            <input type="text" name="admin_password" value="" placeholder="Leeg = geen admin user" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600">
+            <div class="text-xs text-slate-500 mt-1">SSH als <span class="font-mono">pi@{{hostname}}.local</span> met volledige sudo-rechten — handig voor onderhoud</div>
           </div>
         </div>
         <div class="border-t border-slate-700 pt-4 space-y-3">
@@ -492,7 +497,7 @@
       <script>
         document.getElementById('bundleForm').addEventListener('submit', function() {
           const src = document.getElementById('mainForm');
-          ['hostname','wifi_country','password','ap_ssid','ap_password','install_cups'].forEach(n => {
+          ['hostname','wifi_country','password','admin_password','ap_ssid','ap_password','install_cups'].forEach(n => {
             const el = src.elements[n]; if (!el) return;
             const inp = document.createElement('input');
             inp.type = 'hidden'; inp.name = n;
