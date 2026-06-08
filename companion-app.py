@@ -316,10 +316,15 @@ def _do_deploy(host: str, username: str, password: str):
         buf.seek(0)
         _log(f"Tarball: {size_kb} KB")
 
-        _log("Uploaden naar RPi (/tmp/cpw_deploy.tar.gz)...")
-        sftp = client.open_sftp()
-        sftp.putfo(buf, "/tmp/cpw_deploy.tar.gz")
-        sftp.close()
+        # Upload via stdin pipe (avoids SFTP "Garbage packet" issues)
+        _log(f"Uploaden ({size_kb} KB)...")
+        data = buf.getvalue()
+        stdin, stdout_up, _ = client.exec_command("cat > /tmp/cpw_deploy.tar.gz")
+        chunk = 32768
+        for i in range(0, len(data), chunk):
+            stdin.write(data[i:i + chunk])
+        stdin.channel.shutdown_write()
+        stdout_up.channel.recv_exit_status()
         _log("Upload klaar.")
 
         steps = [
