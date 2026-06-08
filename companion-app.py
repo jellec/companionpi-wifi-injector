@@ -30,7 +30,7 @@ except ImportError:
 
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.16"
+APP_VERSION      = "0.4.17"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -316,14 +316,12 @@ def _do_deploy(host: str, username: str, password: str):
         buf.seek(0)
         _log(f"Tarball: {size_kb} KB")
 
-        # Upload via stdin pipe (avoids SFTP "Garbage packet" issues)
+        # Upload via channel.sendall() — respects SSH window/flow control
         _log(f"Uploaden ({size_kb} KB)...")
         data = buf.getvalue()
-        stdin, stdout_up, _ = client.exec_command("cat > /tmp/cpw_deploy.tar.gz")
-        chunk = 32768
-        for i in range(0, len(data), chunk):
-            stdin.write(data[i:i + chunk])
-        stdin.channel.shutdown_write()
+        _, stdout_up, _ = client.exec_command("cat > /tmp/cpw_deploy.tar.gz")
+        stdout_up.channel.sendall(data)
+        stdout_up.channel.shutdown_write()
         stdout_up.channel.recv_exit_status()
         _log("Upload klaar.")
 
