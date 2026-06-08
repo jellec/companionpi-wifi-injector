@@ -13,6 +13,7 @@ import ssl
 import string
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import urllib.request
@@ -21,9 +22,15 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+try:
+    import paramiko
+    _PARAMIKO_OK = True
+except ImportError:
+    _PARAMIKO_OK = False
+
 from flask import Flask, redirect, render_template, request, send_file, url_for
 
-APP_VERSION      = "0.4.14"
+APP_VERSION      = "0.4.15"
 APP_BUILD_DATE   = "unknown"   # replaced by CI: sed -i "s/APP_BUILD_DATE.*=.*/APP_BUILD_DATE = \"DATE\"/"
 PORT             = 7070
 REPO_URL_DEFAULT = "https://codeberg.org/jellec/companionpi-wifi"
@@ -269,6 +276,89 @@ def _install_windows(exe_path: Path):
 
 _repo      = {"running": False, "done": False, "error": "", "step": ""}
 _repo_lock = threading.Lock()
+
+_deploy      = {"running": False, "done": False, "error": "", "log": []}
+_deploy_lock = threading.Lock()
+
+_DEPLOY_EXCLUDE = {".git", ".fetch_time", "wheels"}
+
+
+def _do_deploy(host: str, username: str, password: str):
+    """SSH into RPi, upload webapp+scripts tarball, apply, restart service."""
+
+    def _log(msg: str):
+        with _deploy_lock:
+            _deploy["log"].append(msg)
+
+    with _deploy_lock:
+        _deploy.update(running=True, done=False, error="", log=[])
+
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        _log(f"Verbinding maken met {username}@{host}...")
+        client.connect(host, port=22, username=username, password=password, timeout=15)
+        _log("Verbonden.")
+
+        # Build tarball in memory: webapp/ + scripts/ (skip wheels, .git, etc.)
+        _log("Bestanden inpakken (webapp + scripts)...")
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            for subdir in ("webapp", "scripts"):
+                src = WIFI_REPO_CACHE / subdir
+                if not src.exists():
+                    continue
+                for f in sorted(src.rglob("*")):
+                    if f.is_file() and not any(p in _DEPLOY_EXCLUDE for p in f.parts):
+                        arcname = str(f.relative_to(WIFI_REPO_CACHE))
+                        tar.add(str(f), arcname=arcname)
+        size_kb = buf.tell() // 1024
+        buf.seek(0)
+        _log(f"Tarball: {size_kb} KB")
+
+        _log("Uploaden naar RPi (/tmp/cpw_deploy.tar.gz)...")
+        sftp = client.open_sftp()
+        sftp.putfo(buf, "/tmp/cpw_deploy.tar.gz")
+        sftp.close()
+        _log("Upload klaar.")
+
+        steps = [
+            ("Uitpakken...",
+             "rm -rf /tmp/cpw_deploy && mkdir -p /tmp/cpw_deploy"
+             " && tar xzf /tmp/cpw_deploy.tar.gz -C /tmp/cpw_deploy"),
+            ("Webapp kopiëren...",
+             "sudo cp -r /tmp/cpw_deploy/webapp/. /opt/companionpi-wifi/webapp/"),
+            ("Scripts kopiëren...",
+             "for f in /tmp/cpw_deploy/scripts/*.sh;"
+             " do [ -f \"$f\" ] && sudo cp \"$f\" /usr/local/bin/"
+             " && sudo chmod +x \"/usr/local/bin/$(basename $f)\"; done 2>/dev/null || true"),
+            ("Service herstarten...",
+             "sudo systemctl restart companionpi-web.service"),
+            ("Opruimen...",
+             "rm -rf /tmp/cpw_deploy /tmp/cpw_deploy.tar.gz"),
+        ]
+
+        for label, cmd in steps:
+            _log(label)
+            _, stdout, stderr = client.exec_command(cmd)
+            out = stdout.read().decode("utf-8", errors="replace").strip()
+            err = stderr.read().decode("utf-8", errors="replace").strip()
+            status = stdout.channel.recv_exit_status()
+            for line in out.splitlines():
+                _log(f"  {line}")
+            if status != 0:
+                for line in err.splitlines():
+                    _log(f"  ! {line}")
+
+        client.close()
+        _log("✓ Deploy geslaagd — webapp herstart op RPi")
+        with _deploy_lock:
+            _deploy.update(running=False, done=True)
+
+    except Exception as e:
+        with _deploy_lock:
+            _deploy.update(running=False, error=str(e))
+        _log(f"FOUT: {e}")
 
 
 def wifi_repo_status() -> dict:
@@ -737,6 +827,34 @@ def api_bundle():
                          download_name=filename, as_attachment=True)
     except Exception as e:
         return json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"}
+
+
+@app.route("/api/deploy/start", methods=["POST"])
+def api_deploy_start():
+    if not _PARAMIKO_OK:
+        return json.dumps({"error": "paramiko niet geïnstalleerd — pip install paramiko"}), 400, \
+               {"Content-Type": "application/json"}
+    with _deploy_lock:
+        if _deploy["running"]:
+            return json.dumps({"error": "Deploy al bezig"}), 409, \
+                   {"Content-Type": "application/json"}
+    if not (WIFI_REPO_CACHE / "webapp" / "app.py").exists():
+        return json.dumps({"error": "Repo cache leeg — fetch eerst de repo (stap 1)"}), 400, \
+               {"Content-Type": "application/json"}
+    host     = request.form.get("deploy_host", "").strip()
+    username = request.form.get("deploy_user", "pi").strip() or "pi"
+    password = request.form.get("deploy_pass", "").strip()
+    if not host:
+        return json.dumps({"error": "Geen host ingevuld"}), 400, \
+               {"Content-Type": "application/json"}
+    threading.Thread(target=_do_deploy, args=(host, username, password), daemon=True).start()
+    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+
+
+@app.route("/api/deploy/status")
+def api_deploy_status():
+    with _deploy_lock:
+        return json.dumps(dict(_deploy)), 200, {"Content-Type": "application/json"}
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

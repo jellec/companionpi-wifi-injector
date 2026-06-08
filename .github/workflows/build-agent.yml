@@ -35,6 +35,7 @@ jobs:
             --add-data "static:static" \
             --add-data "firstrun-template.sh:." \
             --hidden-import passlib.handlers.sha2_crypt \
+            --collect-submodules paramiko \
             companion-app.py
       - name: Zip .app
         run: |
@@ -68,6 +69,7 @@ jobs:
             --add-data "static;static" `
             --add-data "firstrun-template.sh;." `
             --hidden-import passlib.handlers.sha2_crypt `
+            --collect-submodules paramiko `
             companion-app.py
       - uses: actions/upload-artifact@v4
         with:
@@ -96,6 +98,7 @@ jobs:
             --add-data "static:static" \
             --add-data "firstrun-template.sh:." \
             --hidden-import passlib.handlers.sha2_crypt \
+            --collect-submodules paramiko \
             companion-app.py
       - uses: actions/upload-artifact@v4
         with:
